@@ -13,6 +13,21 @@ services:
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infrastructure/frontend/Dockerfile.dev
+    command: sh -c "pnpm install && pnpm run dev -- --host"
+    volumes:
+      - ./frontend:/app
+      - frontend_modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_APP_NAME: ${VITE_APP_NAME:-Filers}
+      VITE_APP_URL: ${VITE_APP_URL:-http://localhost:8000}
+
 volumes:
   cargo-cache:
   target-cache:
+  frontend_modules:

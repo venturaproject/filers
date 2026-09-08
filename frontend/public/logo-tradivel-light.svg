@@ -1,0 +1,46 @@
+<svg width="2700" height="1024" viewBox="0 0 2700 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="oGradient" x1="130" y1="150" x2="900" y2="900" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#103A42"/>
+      <stop offset="0.5" stop-color="#2d7888"/>
+      <stop offset="1" stop-color="#6BA7AE"/>
+    </linearGradient>
+    <linearGradient id="boltGradient" x1="570" y1="60" x2="510" y2="880" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe95a"/>
+      <stop offset="0.55" stop-color="#ffc21a"/>
+      <stop offset="1" stop-color="#ff9f00"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <path filter="url(#softShadow)" fill="url(#oGradient)" fill-rule="evenodd" d="
+    M 512 108
+    A 378 404 0 1 0 512 916
+    A 378 404 0 1 0 512 108
+    Z
+    M 512 270
+    A 214 246 0 1 1 512 754
+    A 214 246 0 1 1 512 270
+    Z"/>
+  <path filter="url(#softShadow)" fill="url(#boltGradient)" d="
+    M 632 45
+    C 650 42 663 58 658 75
+    L 587 365
+    C 583 381 596 395 612 392
+    L 711 374
+    C 729 371 742 390 733 406
+    L 489 870
+    C 478 890 448 880 452 857
+    L 491 626
+    C 494 609 479 596 463 601
+    L 376 625
+    C 359 630 344 616 346 598
+    L 398 123
+    C 399 109 410 98 424 96
+    L 632 45
+    Z"/>
+  <text x="1050" y="790"
+        font-family="Futura,'Century Gothic','Apple Gothic','Gill Sans',Tahoma,sans-serif"
+        font-weight="700" font-size="720" fill="#103A42">crer</text>
+</svg>

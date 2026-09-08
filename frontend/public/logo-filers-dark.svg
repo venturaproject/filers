@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" fill="none">
+  <!-- F icon badge -->
+  <rect x="0" y="4" width="40" height="40" rx="10" fill="#6366f1"/>
+  <text x="20" y="31" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="800" fill="white" text-anchor="middle">F</text>
+  <!-- Wordmark -->
+  <text x="52" y="34" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="700" fill="white" letter-spacing="-0.5">Filers</text>
+</svg>

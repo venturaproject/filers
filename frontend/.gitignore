@@ -1,0 +1,14 @@
+# Node
+node_modules/
+.pnpm-store/
+dist/
+.vite/
+
+# Env
+.env
+!.env.example
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
