@@ -1,0 +1,15 @@
+FROM rust:1.95-slim
+
+WORKDIR /app
+
+RUN rustup component add clippy rustfmt && \
+    cargo install cargo-watch && \
+    cargo install --locked cargo-nextest
+
+RUN apt-get update && apt-get install -y \
+    pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 8000
+
+CMD ["cargo", "watch", "-x", "run --bin server"]

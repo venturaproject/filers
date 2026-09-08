@@ -1,0 +1,18 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile.dev
+    volumes:
+      - .:/app
+      - cargo-cache:/usr/local/cargo/registry
+      - target-cache:/app/target
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
+
+volumes:
+  cargo-cache:
+  target-cache:
