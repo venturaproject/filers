@@ -4,7 +4,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::Multipart;
+use axum::{
+    extract::Multipart,
+    http::{HeaderValue, header},
+    response::{IntoResponse, Response},
+};
 use serde::Deserialize;
 
 use crate::{
@@ -163,6 +167,30 @@ pub async fn read_multipart(
         }
     }
     Ok(MultipartData { files, texts })
+}
+
+/// The filename without its last extension (`report.2024.xlsx` -> `report.2024`).
+pub fn stem(filename: &str) -> &str {
+    filename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(filename)
+}
+
+/// A `Content-Disposition: attachment` response carrying `body`.
+pub fn attachment(content_type: &'static str, filename: &str, body: Vec<u8>) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
+            (
+                header::CONTENT_DISPOSITION,
+                HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+                    .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+            ),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 /// External clients: enforce scope (+ rate limit, + quota for writes) up front.

@@ -88,7 +88,11 @@ pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> 
 /// (still in-memory), the services, and the auth rate limiter.
 fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
     let jobs = Arc::new(MemoryJobRepository::new());
-    let processing = Arc::new(ProcessingService::new(jobs));
+    let notifier = crate::application::processing::notifier::Notifier::new(
+        config.webhook_url.clone(),
+        config.webhook_secret.clone(),
+    );
+    let processing = Arc::new(ProcessingService::with_notifier(jobs, notifier));
 
     // RBAC catalogue — roles reference the seeded permissions by id.
     let permissions = MemoryPermissionRepository::seeded();
@@ -228,5 +232,7 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         seed_demo_users: true,
         production: false,
         database_url: None,
+        webhook_url: None,
+        webhook_secret: None,
     }
 }

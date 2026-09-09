@@ -34,6 +34,10 @@ pub struct Config {
     /// Postgres connection string. When set, users / sessions / API clients /
     /// client tokens are persisted there; otherwise they live in memory.
     pub database_url: Option<String>,
+    /// Default URL to POST a batch job's final state to on completion.
+    pub webhook_url: Option<String>,
+    /// HMAC-SHA256 key for the `X-Filers-Signature` webhook header.
+    pub webhook_secret: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +128,14 @@ impl Config {
                 .map(|v| matches!(v.trim().to_lowercase().as_str(), "production" | "prod"))
                 .unwrap_or(false),
             database_url: env::var("DATABASE_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            webhook_url: env::var("WEBHOOK_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            webhook_secret: env::var("WEBHOOK_SECRET")
                 .ok()
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty()),
@@ -296,6 +308,8 @@ mod tests {
             seed_demo_users: false,
             production: false,
             database_url: None,
+            webhook_url: None,
+            webhook_secret: None,
         }
     }
 

@@ -7,7 +7,6 @@ use std::time::Instant;
 use axum::{
     Json,
     extract::{Multipart, Query, State},
-    http::{HeaderValue, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -19,7 +18,8 @@ use crate::{
     errors::{AppError, AppResult},
     infrastructure::http::{
         handlers::process_common::{
-            ProcessQuery, Upload, authorize, parse_full, read_multipart, read_upload, trace_sync,
+            ProcessQuery, Upload, attachment, authorize, parse_full, read_multipart, read_upload,
+            stem, trace_sync,
         },
         middleware::api_key::ApiPrincipal,
     },
@@ -183,7 +183,7 @@ pub async fn convert(
     authorize(&state, &principal, "files:write", true).await?;
 
     let target = convert::Target::parse(query.to.as_deref().unwrap_or("json"))
-        .ok_or_else(|| AppError::BadRequest("`to` must be csv, json or ndjson".into()))?;
+        .ok_or_else(|| AppError::BadRequest("`to` must be csv, json, ndjson or xlsx".into()))?;
     let out_delim = query.out_delimiter.unwrap_or(',') as u8;
     let parse_opts = query.parse_options();
 
@@ -238,10 +238,9 @@ pub async fn transform(
         .ok_or_else(|| AppError::BadRequest("missing `file` field".into()))?;
 
     let target = match query.to.as_deref() {
-        Some(t) => Some(
-            convert::Target::parse(t)
-                .ok_or_else(|| AppError::BadRequest("`to` must be csv, json or ndjson".into()))?,
-        ),
+        Some(t) => Some(convert::Target::parse(t).ok_or_else(|| {
+            AppError::BadRequest("`to` must be csv, json, ndjson or xlsx".into())
+        })?),
         None => None,
     };
 
@@ -400,28 +399,4 @@ pub async fn diff(
     .await;
 
     Ok(Json(json!({ "report": report, "timings": timings })))
-}
-
-// ── helpers ─────────────────────────────────────────────────────────────────
-
-fn stem(filename: &str) -> &str {
-    filename
-        .rsplit_once('.')
-        .map(|(s, _)| s)
-        .unwrap_or(filename)
-}
-
-fn attachment(content_type: &'static str, filename: &str, body: Vec<u8>) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
-            (
-                header::CONTENT_DISPOSITION,
-                HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
-                    .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
-            ),
-        ],
-        body,
-    )
-        .into_response()
 }

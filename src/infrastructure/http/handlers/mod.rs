@@ -3,6 +3,7 @@ pub mod auth;
 pub mod batch;
 pub mod dashboard;
 pub mod ext_auth;
+pub mod generate;
 pub mod jobs;
 pub mod jobs_admin;
 pub mod meta;

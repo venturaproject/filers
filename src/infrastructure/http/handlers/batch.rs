@@ -41,6 +41,7 @@ pub async fn handle(
             origin,
             actor,
             principal.owner_key(),
+            body.webhook_url,
         )
         .await?;
 

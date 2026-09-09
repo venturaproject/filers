@@ -12,6 +12,7 @@ pub enum Target {
     Csv,
     Json,
     Ndjson,
+    Xlsx,
 }
 
 impl Target {
@@ -20,6 +21,7 @@ impl Target {
             "csv" => Some(Self::Csv),
             "json" => Some(Self::Json),
             "ndjson" | "jsonl" => Some(Self::Ndjson),
+            "xlsx" | "excel" => Some(Self::Xlsx),
             _ => None,
         }
     }
@@ -29,6 +31,7 @@ impl Target {
             Target::Csv => "text/csv; charset=utf-8",
             Target::Json => "application/json",
             Target::Ndjson => "application/x-ndjson",
+            Target::Xlsx => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
     }
 
@@ -37,6 +40,7 @@ impl Target {
             Target::Csv => "csv",
             Target::Json => "json",
             Target::Ndjson => "ndjson",
+            Target::Xlsx => "xlsx",
         }
     }
 }
@@ -48,6 +52,9 @@ pub fn run(parsed: &ParsedFile, target: Target, delimiter: u8) -> AppResult<Vec<
         Target::Csv => to_csv(parsed, &headers, delimiter),
         Target::Json => to_json(parsed, &headers),
         Target::Ndjson => to_ndjson(parsed, &headers),
+        Target::Xlsx => {
+            super::generate::from_parsed(parsed, &super::generate::XlsxOptions::default())
+        }
     }
 }
 

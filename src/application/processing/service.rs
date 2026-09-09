@@ -15,6 +15,7 @@ use crate::domain::processing::{
 };
 use crate::errors::{AppError, AppResult};
 
+use super::notifier::Notifier;
 use super::parsers;
 
 pub struct ProcessingService {
@@ -22,16 +23,22 @@ pub struct ProcessingService {
     /// Bounds how many CPU-bound parses run at once (uploads + batch combined),
     /// so a burst of large files cannot exhaust the blocking thread pool.
     parse_semaphore: Semaphore,
+    notifier: Notifier,
 }
 
 impl ProcessingService {
     pub fn new(jobs: Arc<dyn JobRepository>) -> Self {
+        Self::with_notifier(jobs, Notifier::disabled())
+    }
+
+    pub fn with_notifier(jobs: Arc<dyn JobRepository>, notifier: Notifier) -> Self {
         let permits = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
         Self {
             jobs,
             parse_semaphore: Semaphore::new(permits),
+            notifier,
         }
     }
 
@@ -96,6 +103,7 @@ impl ProcessingService {
         origin: JobOrigin,
         actor: Option<String>,
         owner: Option<String>,
+        webhook_url: Option<String>,
     ) -> AppResult<(uuid::Uuid, usize)> {
         let entries = collect_files(&dir).await?;
         let file_count = entries.len();
@@ -190,6 +198,7 @@ impl ProcessingService {
             let results: Vec<FileResult> = slots.into_iter().flatten().collect();
             let failed = results.iter().filter(|r| r.status == "error").count();
 
+            let mut final_job = None;
             if let Ok(Some(mut j)) = svc.jobs.find(job_id).await {
                 j.status = if failed == entries.len() && !entries.is_empty() {
                     JobStatus::Failed
@@ -200,7 +209,14 @@ impl ProcessingService {
                 j.files_processed = results.len() - failed;
                 j.files_failed = failed;
                 j.results = results;
-                let _ = svc.jobs.update(j).await;
+                let _ = svc.jobs.update(j.clone()).await;
+                final_job = Some(j);
+            }
+
+            if let Some(job) = &final_job {
+                svc.notifier
+                    .job_completed(job, webhook_url.as_deref())
+                    .await;
             }
         });
 
@@ -217,6 +233,8 @@ pub struct BatchRequest {
     /// Sub-directory to scan, relative to BATCH_BASE_DIR. `None` = the base dir.
     pub path: Option<String>,
     pub options: Option<ParseOptions>,
+    /// Override the configured `WEBHOOK_URL` for this job's completion callback.
+    pub webhook_url: Option<String>,
 }
 
 /// Cheap magic-byte check that the upload matches its claimed extension.

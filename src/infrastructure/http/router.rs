@@ -12,8 +12,8 @@ use tower_http::{
 };
 
 use super::handlers::{
-    api_clients, auth, batch, dashboard, ext_auth, jobs, jobs_admin, meta, permissions, process,
-    process_ops, roles, users,
+    api_clients, auth, batch, dashboard, ext_auth, generate, jobs, jobs_admin, meta, permissions,
+    process, process_ops, roles, users,
 };
 use super::middleware::security;
 use crate::state::AppState;
@@ -37,6 +37,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/process/convert", post(process_ops::convert))
         .route("/api/process/transform", post(process_ops::transform))
         .route("/api/process/diff", post(process_ops::diff))
+        .route("/api/generate/xlsx", post(generate::xlsx))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
         // Admin UI auth (session cookie)
