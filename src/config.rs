@@ -28,6 +28,9 @@ pub struct Config {
     /// `APP_ENV` is `production` / `prod`. Turns [`Config::validate`] from
     /// warnings into hard startup errors.
     pub production: bool,
+    /// Postgres connection string. When set, users / sessions / API clients /
+    /// client tokens are persisted there; otherwise they live in memory.
+    pub database_url: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +111,10 @@ impl Config {
             production: env::var("APP_ENV")
                 .map(|v| matches!(v.trim().to_lowercase().as_str(), "production" | "prod"))
                 .unwrap_or(false),
+            database_url: env::var("DATABASE_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty()),
         }
     }
 
@@ -162,6 +169,12 @@ impl Config {
         if !self.session_cookie_secure {
             warnings.push(
                 "SESSION_COOKIE_SECURE is false — the session cookie has no `Secure` flag".into(),
+            );
+        }
+        if self.database_url.is_none() {
+            errors.push(
+                "DATABASE_URL is not set — auth state would be in-memory and lost on restart"
+                    .into(),
             );
         }
 
@@ -269,6 +282,7 @@ mod tests {
             auth_rate_limit: (10, 60),
             seed_demo_users: false,
             production: false,
+            database_url: None,
         }
     }
 
@@ -294,6 +308,7 @@ mod tests {
         c.cors_origins = vec!["https://app.example.com".into()];
         c.session_cookie_secure = true;
         c.seed_demo_users = false;
+        c.database_url = Some("postgres://localhost/filers".into());
         let (errors, warnings) = c.validate();
         assert!(errors.is_empty(), "{errors:?}");
         assert!(warnings.is_empty(), "{warnings:?}");

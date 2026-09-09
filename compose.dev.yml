@@ -9,10 +9,34 @@ services:
     ports:
       - "8085:80"        # single entrypoint: http://localhost:8085
 
+  # Persistence for users / sessions / API clients / tokens. The API only uses
+  # it when DATABASE_URL is set in .env — leave it unset for a pure in-memory run.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: filers
+      POSTGRES_PASSWORD: filers
+      POSTGRES_DB: filers
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    # Uncomment to reach it from the host (e.g. for `sqlx` / a GUI):
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filers"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build:
       context: .
       dockerfile: infrastructure/Dockerfile.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
     # Only watch the Rust sources — not frontend/, uploads/, etc.
     command: cargo watch -w src -w Cargo.toml -w Cargo.lock -x run
     volumes:
@@ -27,6 +51,8 @@ services:
     env_file: .env
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
+      # Point the app at the bundled Postgres unless .env overrides it.
+      DATABASE_URL: ${DATABASE_URL:-postgres://filers:filers@postgres:5432/filers}
 
   frontend:
     build:
@@ -49,3 +75,4 @@ volumes:
   cargo-cache:
   target-cache:
   frontend_modules:
+  postgres-data:

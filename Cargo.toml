@@ -30,6 +30,15 @@ async-trait = "0.1"
 dashmap  = "6"
 rayon    = "1"
 
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "macros",
+    "migrate",
+] }
+
 calamine = { version = "0.26", features = ["dates"] }
 csv      = "1"
 

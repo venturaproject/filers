@@ -14,24 +14,79 @@ use crate::{
     },
     config::{Config, SeedUser},
     domain::{
-        api_client::entities::RateLimit,
-        auth::entities::{Role, User, UserStatus},
+        api_client::{
+            entities::RateLimit,
+            repository::{ApiClientRepository, ClientTokenRepository},
+        },
+        auth::{
+            entities::{Role, User, UserStatus},
+            repository::{SessionRepository, UserRepository},
+        },
     },
     infrastructure::{
         http::{ratelimit::RateLimiter, router},
-        persistence::memory::{
-            api_client_repository::{MemoryApiClientRepository, MemoryClientTokenRepository},
-            job_repository::MemoryJobRepository,
-            rbac_repository::{MemoryPermissionRepository, MemoryRoleRepository},
-            session_repository::MemorySessionRepository,
-            user_repository::MemoryUserRepository,
+        persistence::{
+            memory::{
+                api_client_repository::{MemoryApiClientRepository, MemoryClientTokenRepository},
+                job_repository::MemoryJobRepository,
+                rbac_repository::{MemoryPermissionRepository, MemoryRoleRepository},
+                session_repository::MemorySessionRepository,
+                user_repository::MemoryUserRepository,
+            },
+            postgres,
         },
     },
     state::AppState,
 };
 
-/// Build the full in-memory application state from a config.
+/// The four auth-critical repos, either in-memory or Postgres-backed.
+struct AuthStores {
+    users: Arc<dyn UserRepository>,
+    sessions: Arc<dyn SessionRepository>,
+    clients: Arc<dyn ApiClientRepository>,
+    tokens: Arc<dyn ClientTokenRepository>,
+}
+
+/// Build the full application state with **in-memory** repositories.
+/// Used by the test suite and as the fallback when `DATABASE_URL` is unset.
 pub fn build_state(config: Config) -> Arc<AppState> {
+    let stores = AuthStores {
+        users: Arc::new(MemoryUserRepository::new(default_seed_users(
+            &config.seed_user,
+            config.seed_demo_users,
+        ))),
+        sessions: Arc::new(MemorySessionRepository::new()),
+        clients: Arc::new(MemoryApiClientRepository::new()),
+        tokens: Arc::new(MemoryClientTokenRepository::new()),
+    };
+    assemble_state(config, stores)
+}
+
+/// Build the application state, using Postgres for the auth-critical stores when
+/// `DATABASE_URL` is set (running migrations and seeding the admin on first run),
+/// otherwise falling back to [`build_state`].
+pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> {
+    let Some(url) = config.database_url.clone() else {
+        return Ok(build_state(config));
+    };
+
+    let pool = postgres::connect(&url).await?;
+    let users: Arc<dyn UserRepository> = Arc::new(postgres::PgUserRepository::new(pool.clone()));
+    seed_users_if_missing(users.as_ref(), &config.seed_user, config.seed_demo_users).await?;
+
+    let stores = AuthStores {
+        users,
+        sessions: Arc::new(postgres::PgSessionRepository::new(pool.clone())),
+        clients: Arc::new(postgres::PgApiClientRepository::new(pool.clone())),
+        tokens: Arc::new(postgres::PgClientTokenRepository::new(pool)),
+    };
+    tracing::info!("persistence: Postgres");
+    Ok(assemble_state(config, stores))
+}
+
+/// Everything downstream of the swappable auth repos: RBAC catalogue + job store
+/// (still in-memory), the services, and the auth rate limiter.
+fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
     let jobs = Arc::new(MemoryJobRepository::new());
     let processing = Arc::new(ProcessingService::new(jobs));
 
@@ -42,23 +97,16 @@ pub fn build_state(config: Config) -> Arc<AppState> {
     let roles = Arc::new(MemoryRoleRepository::seeded(admin_perm_ids, user_perm_ids));
     let permissions = Arc::new(permissions);
 
-    let users = Arc::new(MemoryUserRepository::new(default_seed_users(
-        &config.seed_user,
-        config.seed_demo_users,
-    )));
-    let sessions = Arc::new(MemorySessionRepository::new());
-    let auth = Arc::new(AuthService::new(users, sessions));
-
+    let auth = Arc::new(AuthService::new(stores.users, stores.sessions));
     let api_clients = Arc::new(ApiClientService::new(
-        Arc::new(MemoryApiClientRepository::new()),
-        Arc::new(MemoryClientTokenRepository::new()),
+        stores.clients,
+        stores.tokens,
         config
             .ext_default_rate_limit
             .as_deref()
             .and_then(RateLimit::parse),
         config.ext_default_monthly_page_quota,
     ));
-
     let auth_limiter = RateLimiter::new(config.auth_rate_limit.0, config.auth_rate_limit.1);
 
     Arc::new(AppState {
@@ -72,9 +120,28 @@ pub fn build_state(config: Config) -> Arc<AppState> {
     })
 }
 
-/// Build the router straight from a config.
+/// Insert the seed accounts that are not already in the store (Postgres path).
+async fn seed_users_if_missing(
+    repo: &dyn UserRepository,
+    seed: &SeedUser,
+    include_demo: bool,
+) -> anyhow::Result<()> {
+    for user in default_seed_users(seed, include_demo) {
+        if repo.find_by_email(&user.email).await?.is_none() {
+            repo.create(user).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Build the router with in-memory state (tests).
 pub fn build_app(config: Config) -> axum::Router {
     router::build(build_state(config))
+}
+
+/// Build the router, honouring `DATABASE_URL` (main).
+pub async fn build_app_async(config: Config) -> anyhow::Result<axum::Router> {
+    Ok(router::build(build_state_async(config).await?))
 }
 
 /// The accounts seeded on startup: always the admin; the two demo `user`s only
@@ -156,5 +223,6 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         auth_rate_limit: (5, 60),
         seed_demo_users: true,
         production: false,
+        database_url: None,
     }
 }

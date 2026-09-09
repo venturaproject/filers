@@ -34,7 +34,7 @@ async fn main() {
 
     tracing::info!(email = %config.seed_user.email, "seeded admin user");
 
-    let app = bootstrap::build_app(config);
+    let app = bootstrap::build_app_async(config).await.expect("build app");
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
