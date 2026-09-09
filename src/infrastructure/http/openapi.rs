@@ -3,7 +3,8 @@
 //! Only the endpoints an external integrator calls are described here — the
 //! session-cookie admin routes under `/api/v1/*` are intentionally excluded.
 //!
-//! Served (spec + Scalar UI) only when [`crate::config::Config::enable_api_docs`]
+//! Served (spec + Scalar UI at `/api/docs` + Swagger UI at `/api/swagger`) only
+//! when [`crate::config::Config::enable_api_docs`]
 //! is true; see [`super::router`].
 
 use utoipa::{

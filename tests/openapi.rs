@@ -34,6 +34,14 @@ async fn scalar_ui_is_served() {
 }
 
 #[tokio::test]
+async fn swagger_ui_is_served() {
+    let mut app = TestApp::new();
+    let res = app.get("/api/swagger").await;
+    assert_eq!(res.status, 200);
+    assert!(res.text().to_lowercase().contains("swagger"));
+}
+
+#[tokio::test]
 async fn docs_are_absent_when_disabled() {
     let tmp = tempfile::tempdir().unwrap();
     let mut config = rust_api::bootstrap::test_config(tmp.path().to_string_lossy().to_string());

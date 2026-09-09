@@ -21,6 +21,30 @@ use crate::state::AppState;
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
 
+/// Swagger UI, loaded from the jsdelivr CDN and pointed at `/api/openapi.json`.
+/// Served only when `ENABLE_API_DOCS` is on.
+const SWAGGER_UI_HTML: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Filers API — Swagger UI</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"/>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: '/api/openapi.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      persistAuthorization: true,
+    });
+  </script>
+</body>
+</html>"#;
+
 pub fn build(state: Arc<AppState>) -> Router {
     // Hard cap on any request body, enforced by axum before a handler runs.
     // A little headroom is left above the configured file size for multipart
@@ -103,8 +127,11 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/ext/auth/refresh", post(ext_auth::refresh))
         .route("/health", get(health));
 
-    // OpenAPI spec + Scalar docs UI. Gated by `ENABLE_API_DOCS`
+    // OpenAPI spec + docs UIs. Gated by `ENABLE_API_DOCS`
     // (default: on outside production, off in production).
+    //   /api/openapi.json  — the spec
+    //   /api/docs          — Scalar (modern, built-in request client)
+    //   /api/swagger       — Swagger UI (classic "try it out" forms)
     let router = if state.config.enable_api_docs {
         let scalar_html = Scalar::with_url("/api/docs", ApiDoc::openapi()).to_html();
         router
@@ -118,6 +145,10 @@ pub fn build(state: Arc<AppState>) -> Router {
                     let html = scalar_html.clone();
                     async move { axum::response::Html(html) }
                 }),
+            )
+            .route(
+                "/api/swagger",
+                get(|| async { axum::response::Html(SWAGGER_UI_HTML) }),
             )
     } else {
         router

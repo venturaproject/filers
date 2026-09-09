@@ -383,6 +383,10 @@ When `ENABLE_API_DOCS` is on:
 - `GET /api/openapi.json` — the spec (public processing API only; `/api/v1/*`
   admin routes are excluded)
 - `GET /api/docs` — [Scalar](https://scalar.com) UI
+- `GET /api/swagger` — Swagger UI (classic "try it out" forms)
+
+Both UIs point at the same `/api/openapi.json`; you can also paste that URL into
+Postman / Insomnia / an external Swagger or Redoc instance.
 
 Default: **on** outside production, **off** in production. Set `ENABLE_API_DOCS=true`
 to force it on (allowed in production, but the startup log warns).

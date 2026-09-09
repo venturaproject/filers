@@ -45,9 +45,9 @@ pub struct Config {
     pub webhook_url: Option<String>,
     /// HMAC-SHA256 key for the `X-Filers-Signature` webhook header.
     pub webhook_secret: Option<String>,
-    /// Serve the OpenAPI spec (`/api/openapi.json`) and Scalar docs UI
-    /// (`/api/docs`). `ENABLE_API_DOCS` overrides; unset defaults to
-    /// "on outside production, off in production".
+    /// Serve the OpenAPI spec (`/api/openapi.json`) plus the Scalar
+    /// (`/api/docs`) and Swagger UI (`/api/swagger`) viewers. `ENABLE_API_DOCS`
+    /// overrides; unset defaults to "on outside production, off in production".
     pub enable_api_docs: bool,
 }
 
@@ -232,7 +232,7 @@ impl Config {
         }
         if self.enable_api_docs {
             warnings.push(
-                "ENABLE_API_DOCS is on — the OpenAPI spec and Scalar UI are publicly reachable at /api/docs"
+                "ENABLE_API_DOCS is on — the OpenAPI spec + Scalar/Swagger UIs are publicly reachable at /api/{docs,swagger}"
                     .into(),
             );
         }
