@@ -100,6 +100,71 @@ pub async fn read_upload(state: &AppState, mut multipart: Multipart) -> AppResul
     ))
 }
 
+/// Every field of a multipart body: file parts and plain-text parts, each keyed
+/// by its form field name. File parts are size-checked against the config limit.
+pub struct MultipartData {
+    pub files: Vec<(String, String, Vec<u8>)>,
+    pub texts: std::collections::HashMap<String, String>,
+}
+
+impl MultipartData {
+    /// The bytes + filename of the first file field named `name`.
+    pub fn file(&self, name: &str) -> Option<(&str, &[u8])> {
+        self.files
+            .iter()
+            .find(|(field, ..)| field == name)
+            .map(|(_, fname, bytes)| (fname.as_str(), bytes.as_slice()))
+    }
+
+    /// A field's value as a string, whether it arrived as a text part or as an
+    /// uploaded (`schema.json`-style) file.
+    pub fn field_string(&self, name: &str) -> Option<String> {
+        if let Some(t) = self.texts.get(name) {
+            return Some(t.clone());
+        }
+        self.file(name)
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
+pub async fn read_multipart(
+    state: &AppState,
+    mut multipart: Multipart,
+) -> AppResult<MultipartData> {
+    let max_bytes = state.config.max_file_size_mb.saturating_mul(1024 * 1024);
+    let mut files = Vec::new();
+    let mut texts = std::collections::HashMap::new();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        if field.file_name().is_some() {
+            let fname = field.file_name().unwrap_or("upload").to_string();
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            if bytes.len() > max_bytes {
+                return Err(AppError::BadRequest(format!(
+                    "File exceeds maximum size of {} MB",
+                    state.config.max_file_size_mb
+                )));
+            }
+            files.push((name, fname, bytes.to_vec()));
+        } else {
+            let text = field
+                .text()
+                .await
+                .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            texts.insert(name, text);
+        }
+    }
+    Ok(MultipartData { files, texts })
+}
+
 /// External clients: enforce scope (+ rate limit, + quota for writes) up front.
 pub async fn authorize(
     state: &AppState,

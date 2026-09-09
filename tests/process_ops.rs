@@ -173,6 +173,99 @@ async fn convert_rejects_unknown_target() {
 }
 
 #[tokio::test]
+async fn transform_filters_selects_and_renames() {
+    let mut app = TestApp::new();
+    let spec = serde_json::json!({
+        "select": ["id", "age"],
+        "rename": { "age": "years" },
+        "cast": { "age": "integer" },
+        "filter": { "age": { "gte": 30 } }
+    })
+    .to_string();
+
+    let r = app
+        .post_files_key(
+            "/api/process/transform",
+            KEY,
+            &[
+                ("spec", "spec.json", "application/json", spec.as_bytes()),
+                ("file", "p.csv", OCTET, people_csv()),
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json["columns"], serde_json::json!(["id", "years"]));
+    // ages: 34, 29, 200 → keep 34 and 200
+    assert_eq!(r.json["stats"]["returned_rows"], 2);
+    assert_eq!(r.json["matched_rows"], 2);
+}
+
+#[tokio::test]
+async fn transform_can_return_a_csv_download() {
+    let mut app = TestApp::new();
+    let spec = serde_json::json!({ "select": ["id"] }).to_string();
+    let r = app
+        .post_files_key(
+            "/api/process/transform?to=csv",
+            KEY,
+            &[
+                ("spec", "s.json", "application/json", spec.as_bytes()),
+                ("file", "p.csv", OCTET, people_csv()),
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(
+        r.headers.get(header::CONTENT_TYPE).unwrap(),
+        "text/csv; charset=utf-8"
+    );
+    assert_eq!(r.text().lines().next().unwrap().trim(), "id");
+}
+
+#[tokio::test]
+async fn diff_detects_added_removed_and_changed_rows() {
+    let mut app = TestApp::new();
+    let a = b"id,status\n1,new\n2,new\n3,done\n";
+    let b = b"id,status\n1,new\n2,done\n4,new\n";
+
+    let r = app
+        .post_files_key(
+            "/api/process/diff?key=id",
+            KEY,
+            &[("a", "a.csv", OCTET, a), ("b", "b.csv", OCTET, b)],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+
+    let s = &r.json["report"]["summary"];
+    assert_eq!(s["added"], 1); // id 4
+    assert_eq!(s["removed"], 1); // id 3
+    assert_eq!(s["changed"], 1); // id 2: new → done
+    assert_eq!(s["unchanged"], 1); // id 1
+
+    let changed = r.json["report"]["changed"].as_array().unwrap();
+    assert_eq!(changed[0]["key"]["id"], serde_json::json!(2));
+    assert_eq!(changed[0]["changes"]["status"]["from"], "new");
+    assert_eq!(changed[0]["changes"]["status"]["to"], "done");
+}
+
+#[tokio::test]
+async fn diff_requires_a_key() {
+    let mut app = TestApp::new();
+    let r = app
+        .post_files_key(
+            "/api/process/diff",
+            KEY,
+            &[
+                ("a", "a.csv", OCTET, b"id\n1\n"),
+                ("b", "b.csv", OCTET, b"id\n1\n"),
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn ops_leave_a_trace_with_the_operation_name() {
     let mut app = TestApp::new();
     app.post_file_key(

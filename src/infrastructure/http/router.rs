@@ -35,6 +35,8 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/process/profile", post(process_ops::profile))
         .route("/api/process/validate", post(process_ops::validate))
         .route("/api/process/convert", post(process_ops::convert))
+        .route("/api/process/transform", post(process_ops::transform))
+        .route("/api/process/diff", post(process_ops::diff))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
         // Admin UI auth (session cookie)
