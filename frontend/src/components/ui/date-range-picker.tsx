@@ -242,6 +242,8 @@ export const DateRangePicker: FC<DateRangePickerProps> = ({
 
   useEffect(() => {
     checkPreset()
+    // checkPreset is re-created every render; re-run only when the range changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range])
 
   useEffect(() => {
@@ -249,6 +251,8 @@ export const DateRangePicker: FC<DateRangePickerProps> = ({
       openedRangeRef.current = range
       openedRangeCompareRef.current = rangeCompare
     }
+    // Snapshot the range only at the moment the popover opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
   const areRangesEqual = (a?: DateRange, b?: DateRange): boolean => {

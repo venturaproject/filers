@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, useParams, useLocation } from 'react-router-dom'
 import RolesPage from '@/pages/roles/index'
@@ -36,8 +37,15 @@ export default function RolesRoute() {
     enabled: isEdit
   })
 
-  const groupPermissions = (permissions: any[]) => {
-    const grouped: any = {}
+  type PermissionLike = { id: number; name: string }
+  type PermissionGroup = {
+    key: string
+    label: string
+    permissions: Array<{ id: number; name: string; action: string; actionLabel: string }>
+  }
+
+  const groupPermissions = (permissions: PermissionLike[]): Record<string, PermissionGroup> => {
+    const grouped: Record<string, PermissionGroup> = {}
     permissions.forEach(p => {
       const parts = p.name.split('.')
       const model = parts[0] || 'other'
@@ -62,27 +70,28 @@ export default function RolesRoute() {
   }
 
   const roles = normalizePaginatedPayload(listData)
-  const permissions = permissionsData ?? []
+  const permissions = (permissionsData ?? []) as PermissionLike[]
   const groupedPermissions = groupPermissions(permissions)
 
   if (isEdit) {
     if (roleLoading) return <RoutePending />
     if (roleError || !roleData) return <NotFoundError />
+    const roleRecord = roleData as { permissions?: Array<{ id: number }> }
     return (
-      <EditRolePage 
-        role={roleData as any} 
-        permissions={permissions as any}
-        groupedPermissions={groupedPermissions}
-        rolePermissions={Array.isArray((roleData as any)?.permissions) ? (roleData as any).permissions.map((p: any) => p.id) : []}
+      <EditRolePage
+        role={roleData as unknown as ComponentProps<typeof EditRolePage>['role']}
+        permissions={permissions as unknown as ComponentProps<typeof EditRolePage>['permissions']}
+        groupedPermissions={groupedPermissions as unknown as ComponentProps<typeof EditRolePage>['groupedPermissions']}
+        rolePermissions={Array.isArray(roleRecord?.permissions) ? roleRecord.permissions.map((p) => p.id) : []}
       />
     )
   }
 
   if (isCreate) {
     return (
-      <CreateRolePage 
-        permissions={permissions as any}
-        groupedPermissions={groupedPermissions}
+      <CreateRolePage
+        permissions={permissions as unknown as ComponentProps<typeof CreateRolePage>['permissions']}
+        groupedPermissions={groupedPermissions as unknown as ComponentProps<typeof CreateRolePage>['groupedPermissions']}
       />
     )
   }
@@ -91,7 +100,7 @@ export default function RolesRoute() {
 
   return (
     <RolesPage
-      roles={roles as any}
+      roles={roles as unknown as ComponentProps<typeof RolesPage>['roles']}
       filters={filters}
       permissions={listData?.permissions ?? []}
     />

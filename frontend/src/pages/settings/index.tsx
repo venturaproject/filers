@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { AuthenticatedLayout } from "@/layouts"
 import {
   IconBrowserCheck,
@@ -11,7 +12,7 @@ import { Main } from '@/components/layout/main'
 import SidebarNav from '@/layouts/settings-layout/components/sidebar-nav'
 import { useI18n } from '@/i18n/context'
 
-export default function Settings({ children } : any) {
+export default function Settings({ children }: { children?: ReactNode }) {
   const { t } = useI18n()
 
   const sidebarNavItems = [

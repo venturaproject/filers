@@ -3,16 +3,18 @@ import { axios } from "@/lib/axios"
 import { endpoints } from "@/lib/endpoints"
 import { assetUrl } from "@/lib/urls"
 
-type BucketId = "uploads/images" | "logo"
+interface UploaderOptions {
+  unique?: boolean
+  bucketId?: string
+  onUploadProgress?: (event: unknown) => void
+}
 
 function createImageUploader({
   unique = true,
   bucketId = "uploads/images",
   onUploadProgress,
-}: any = {}) {
+}: UploaderOptions = {}) {
   return async (file: File): Promise<string> => {
-    let path: string | undefined
-
     const response = await axios.request({
       method: "POST",
       url: endpoints.upload.presignedUrl,
@@ -26,7 +28,8 @@ function createImageUploader({
     })
 
     const url: string | undefined = response?.data?.url
-    const headers: any = response?.data?.headers
+    const path: string | undefined = response?.data?.path ?? response?.data?.key
+    const headers: Record<string, string> | undefined = response?.data?.headers
 
     await axiosRequest.request({
       method: "PUT",
@@ -40,7 +43,7 @@ function createImageUploader({
       },
     })
 
-    return assetUrl(path!)
+    return assetUrl(path ?? url)
   }
 }
 

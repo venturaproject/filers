@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { generatePassword } from "@/lib/generate-password"
 import { pathFor } from "@/lib/app-routes"
 import { usersApi } from "@/services/users-api"
+import { extractApiErrors } from "@/lib/api-utils"
 
 interface Role {
   id: number
@@ -82,13 +83,13 @@ export default function CreateUser({ roles = [] }: CreateUserPageProps) {
       })
       toast.success(t('user_created') || 'Usuario creado correctamente')
       navigate(pathFor('admin.users.index'))
-    } catch (error: any) {
-      if (error.response?.data) {
-        const serverErrors = error.response.data
-        Object.entries(serverErrors).forEach(([key, message]) => {
-          setError(key as any, { message: Array.isArray(message) ? message[0] : message as string })
+    } catch (error) {
+      const serverErrors = extractApiErrors(error)
+      Object.entries(serverErrors).forEach(([key, message]) => {
+        setError(key as Parameters<typeof setError>[0], {
+          message: Array.isArray(message) ? message[0] : message,
         })
-      }
+      })
       toast.error(t('please_try_again') || 'Error al crear el usuario')
     }
   }

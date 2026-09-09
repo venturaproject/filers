@@ -21,7 +21,7 @@ export type QueryParameter<
     | undefined
 }
 
-export type MutationOptions<TVariables = any | void, TData = any> = Omit<
+export type MutationOptions<TVariables = unknown, TData = unknown> = Omit<
   UseMutationOptions<TData, Error, TVariables>,
   "mutationFn" | "mutationKey"
 >

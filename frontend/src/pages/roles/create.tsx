@@ -26,6 +26,7 @@ import { pathFor } from "@/lib/app-routes"
 import { useQueryClient } from "@tanstack/react-query"
 import { PageProps, GroupedPermissions } from "@/types"
 import { rolesApi } from "@/services/roles-api"
+import { extractApiErrors } from "@/lib/api-utils"
 
 interface Permission {
   id: number
@@ -38,7 +39,7 @@ interface CreateRolePageProps extends PageProps {
   groupedPermissions: GroupedPermissions
 }
 
-export default function CreateRole({ permissions, groupedPermissions }: CreateRolePageProps) {
+export default function CreateRole({ groupedPermissions }: CreateRolePageProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -91,9 +92,11 @@ export default function CreateRole({ permissions, groupedPermissions }: CreateRo
       toast.success(t('role_created') || 'Role created successfully.')
       queryClient.invalidateQueries({ queryKey: ['roles'] })
       navigate(pathFor('admin.roles.index'))
-    } catch (error: any) {
-      if (error.response?.data) {
-        toast.error(Object.values(error.response.data)[0] as string || t('error_creating_role') || 'Error creating role.')
+    } catch (error) {
+      const serverErrors = Object.values(extractApiErrors(error))
+      if (serverErrors.length > 0) {
+        const first = serverErrors[0]
+        toast.error((Array.isArray(first) ? first[0] : first) || t('error_creating_role') || 'Error creating role.')
       } else {
         toast.error(t('please_try_again') || 'Error. Please try again.')
       }

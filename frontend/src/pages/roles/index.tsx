@@ -82,7 +82,7 @@ export default function RolesIndex({ roles, filters: initialFilters = {} }: Role
       await rolesApi.delete(roleId)
       toast.success(t('role_deleted') || 'Role deleted successfully.')
       queryClient.invalidateQueries({ queryKey: ['roles'] })
-    } catch (error: any) {
+    } catch {
       toast.error(t('error_deleting_role') || 'Error deleting role.')
     }
   }

@@ -1,5 +1,6 @@
-type RouteParams = Record<string, any> | string | number | null | undefined
-type RouteValue = string | ((params: Record<string, any>) => string)
+type ParamValue = string | number | boolean | null | undefined
+type RouteParams = Record<string, ParamValue> | string | number | null | undefined
+type RouteValue = string | ((params: Record<string, ParamValue>) => string)
 
 export const appRouteMap: Record<string, RouteValue> = {
   login: '/login',
@@ -54,13 +55,13 @@ export const appRouteMap: Record<string, RouteValue> = {
   'admin.files.job': (p) => `/admin/jobs/${p.id}`,
 }
 
-function normalizeParams(params?: RouteParams): Record<string, any> {
+function normalizeParams(params?: RouteParams): Record<string, ParamValue> {
   if (params === null || params === undefined) return {}
   if (typeof params === 'object' && !Array.isArray(params)) return params
-  return { id: params }
+  return { id: params as ParamValue }
 }
 
-function toQueryString(params: Record<string, any>): string {
+function toQueryString(params: Record<string, ParamValue>): string {
   const entries = Object.entries(params).filter(
     ([, v]) => v !== undefined && v !== null && v !== '',
   )
@@ -79,7 +80,7 @@ export function pathFor(name?: string, params?: RouteParams): string {
   // Static path: an object of params becomes a query string (e.g. list filters).
   const isObject =
     params !== null && params !== undefined && typeof params === 'object' && !Array.isArray(params)
-  return isObject ? entry + toQueryString(params as Record<string, any>) : entry
+  return isObject ? entry + toQueryString(params as Record<string, ParamValue>) : entry
 }
 
 pathFor.current = (name: string): boolean => {

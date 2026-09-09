@@ -19,6 +19,7 @@ import { pathFor } from "@/lib/app-routes"
 import { useQueryClient } from "@tanstack/react-query"
 import { PageProps } from "@/types"
 import { permissionsApi } from "@/services/permissions-api"
+import { extractApiErrors } from "@/lib/api-utils"
 
 const COMMON_GROUPS = [
   'users', 'roles', 'permissions', 'ocr', 'documents', 'api_clients', 'settings', 'dashboard'
@@ -42,24 +43,6 @@ export default function CreatePermission(_props: CreatePermissionPageProps) {
 
   const permissionName = [group || customGroup, action || customAction].filter(Boolean).join('.')
 
-  const handleGroupChange = (value: string) => {
-    if (value === 'custom') {
-      setGroup('')
-    } else {
-      setGroup(value)
-      setCustomGroup('')
-    }
-  }
-
-  const handleActionChange = (value: string) => {
-    if (value === 'custom') {
-      setAction('')
-    } else {
-      setAction(value)
-      setCustomAction('')
-    }
-  }
-
   const onSubmit = async () => {
     const name = [group || customGroup, action || customAction].filter(Boolean).join('.')
     
@@ -82,9 +65,11 @@ export default function CreatePermission(_props: CreatePermissionPageProps) {
       toast.success(t('permission_created') || 'Permission created successfully.')
       queryClient.invalidateQueries({ queryKey: ['permissions'] })
       navigate(pathFor('admin.permissions.index'))
-    } catch (error: any) {
-      if (error.response?.data) {
-        toast.error(Object.values(error.response.data)[0] as string || t('error_creating_permission') || 'Error creating permission.')
+    } catch (error) {
+      const serverErrors = Object.values(extractApiErrors(error))
+      if (serverErrors.length > 0) {
+        const first = serverErrors[0]
+        toast.error((Array.isArray(first) ? first[0] : first) || t('error_creating_permission') || 'Error creating permission.')
       } else {
         toast.error(t('please_try_again') || 'Error. Please try again.')
       }

@@ -1,6 +1,6 @@
 import * as React from "react"
 
-const AppLayout = ({ children } : any) => {
+const AppLayout = ({ children }: { children?: React.ReactNode }) => {
   return <>{children}</>
 }
 

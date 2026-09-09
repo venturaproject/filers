@@ -4,7 +4,7 @@ import { DocumentTitle } from "@/components/document-title";
 import { APP_NAME } from "@/config/env";
 import { ArrowRight } from "lucide-react";
 
-export const Header = ({ title } : any) => {
+export const Header = ({ title }: { title?: string }) => {
   return (
     <>
       <DocumentTitle title={title ?? APP_NAME}/>

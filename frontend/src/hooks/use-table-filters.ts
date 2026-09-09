@@ -9,7 +9,7 @@ interface UseTableFiltersOptions<T> {
   onNavigate?: () => void
 }
 
-function buildUrl(base: string, params: Record<string, any>): string {
+function buildUrl(base: string, params: Record<string, unknown>): string {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
   if (!entries.length) return base
   return base + '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString()
@@ -32,7 +32,7 @@ export function useTableFilters<T extends Record<string, string | undefined>>({
   const navigateWithFilters = useCallback((newFilters: T) => {
     setFilters(newFilters)
     onNavigate?.()
-    navigate(buildUrl(basePath, newFilters as Record<string, any>), { replace: true })
+    navigate(buildUrl(basePath, newFilters as Record<string, unknown>), { replace: true })
   }, [basePath, onNavigate, navigate])
 
   const handleSearch = useCallback(
@@ -47,13 +47,13 @@ export function useTableFilters<T extends Record<string, string | undefined>>({
   )
 
   const handlePageChange = (page: number) => {
-    navigate(buildUrl(basePath, { ...filters, page, per_page: perPage } as Record<string, any>), { replace: true })
+    navigate(buildUrl(basePath, { ...filters, page, per_page: perPage } as Record<string, unknown>), { replace: true })
   }
 
   const handlePerPageChange = (value: string) => {
     const newPerPage = parseInt(value)
     setPerPage(newPerPage)
-    navigate(buildUrl(basePath, { ...filters, page: 1, per_page: newPerPage } as Record<string, any>), { replace: true })
+    navigate(buildUrl(basePath, { ...filters, page: 1, per_page: newPerPage } as Record<string, unknown>), { replace: true })
   }
 
   return {

@@ -18,7 +18,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const filteredNavGroups = useMemo(
     () => filterNavGroups(sidebarData.navGroups),
-    [filterNavGroups]
+    [filterNavGroups, sidebarData.navGroups]
   )
 
   return (

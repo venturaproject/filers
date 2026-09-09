@@ -22,8 +22,9 @@ import {
   IconUser
 } from "@tabler/icons-react";
 import { useI18n } from "@/i18n/context"
+import type { ReactNode } from "react"
 
-export function SettingLayout({children, title}: any) {
+export function SettingLayout({ children }: { children?: ReactNode; title?: string }) {
   const { t } = useI18n()
 
   const topNav = [

@@ -1,4 +1,4 @@
-type NavigateFn = (to: string, options?: { replace?: boolean; state?: any }) => void
+type NavigateFn = (to: string, options?: { replace?: boolean; state?: unknown }) => void
 
 let _navigate: NavigateFn | null = null
 
@@ -6,7 +6,7 @@ export function setNavigate(fn: NavigateFn) {
   _navigate = fn
 }
 
-function buildUrl(url: string, params?: Record<string, any>): string {
+function buildUrl(url: string, params?: Record<string, unknown>): string {
   if (!params || Object.keys(params).length === 0) return url
   const entries = Object.entries(params).filter(
     ([, v]) => v !== undefined && v !== null && v !== ''
@@ -16,8 +16,8 @@ function buildUrl(url: string, params?: Record<string, any>): string {
 }
 
 type RouterRequestOptions = {
-  onSuccess?: (page?: any) => void
-  onError?: (errors?: any) => void
+  onSuccess?: (page?: unknown) => void
+  onError?: (errors?: unknown) => void
   onFinish?: () => void
   onStart?: () => void
   preserveScroll?: boolean
@@ -28,7 +28,7 @@ type RouterRequestOptions = {
 async function httpRequest(
   method: 'post' | 'put' | 'patch' | 'delete',
   url: string,
-  data?: Record<string, any>,
+  data?: Record<string, unknown>,
   options?: RouterRequestOptions,
 ) {
   try {
@@ -36,8 +36,9 @@ async function httpRequest(
     const { axios } = await import('./axios')
     const response = await axios[method](url, data ?? {})
     options?.onSuccess?.(response.data)
-  } catch (err: any) {
-    const errors = err.response?.data?.errors ?? err.response?.data ?? {}
+  } catch (err) {
+    const axiosErr = err as { response?: { data?: { errors?: unknown } } }
+    const errors = axiosErr.response?.data?.errors ?? axiosErr.response?.data ?? {}
     options?.onError?.(errors)
   } finally {
     options?.onFinish?.()
@@ -45,7 +46,7 @@ async function httpRequest(
 }
 
 export const router = {
-  get(url: string, params?: Record<string, any>, options?: { replace?: boolean }) {
+  get(url: string, params?: Record<string, unknown>, options?: { replace?: boolean }) {
     if (!_navigate) { window.location.href = buildUrl(url, params); return }
     _navigate(buildUrl(url, params), { replace: options?.replace })
   },
@@ -59,19 +60,19 @@ export const router = {
     window.location.reload()
   },
 
-  post(url: string, data?: Record<string, any>, options?: RouterRequestOptions) {
+  post(url: string, data?: Record<string, unknown>, options?: RouterRequestOptions) {
     return httpRequest('post', url, data, options)
   },
 
-  put(url: string, data?: Record<string, any>, options?: RouterRequestOptions) {
+  put(url: string, data?: Record<string, unknown>, options?: RouterRequestOptions) {
     return httpRequest('put', url, data, options)
   },
 
-  patch(url: string, data?: Record<string, any>, options?: RouterRequestOptions) {
+  patch(url: string, data?: Record<string, unknown>, options?: RouterRequestOptions) {
     return httpRequest('patch', url, data, options)
   },
 
-  delete(url: string, data?: Record<string, any>, options?: RouterRequestOptions) {
+  delete(url: string, data?: Record<string, unknown>, options?: RouterRequestOptions) {
     return httpRequest('delete', url, data, options)
   },
 }

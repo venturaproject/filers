@@ -20,13 +20,6 @@ import { useI18n } from '@/i18n/context'
 import { toast } from 'sonner'
 import { useState } from 'react'
 
-interface NotificationSettings {
-  type: 'all' | 'mentions' | 'none'
-  communication_emails: boolean
-  security_emails: boolean
-  mobile_notifications: boolean
-}
-
 const schema = z.object({
   type: z.enum(['all', 'mentions', 'none']),
   communication_emails: z.boolean(),

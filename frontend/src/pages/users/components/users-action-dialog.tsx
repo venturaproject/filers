@@ -29,6 +29,7 @@ import { User } from '../data/schema'
 import { useI18n } from '@/i18n/context'
 import { rolesApi } from '@/services/roles-api'
 import { usersApi } from '@/services/users-api'
+import { extractApiErrors } from '@/lib/api-utils'
 
 interface Props {
   currentRow?: User
@@ -129,7 +130,7 @@ export function UsersActionDialog({ currentRow, open, onOpenChange }: Props) {
     if (!usernameManuallyEdited.current) {
       form.setValue('username', generateUsername(firstName, lastName), { shouldValidate: false })
     }
-  }, [firstName, lastName])
+  }, [firstName, lastName, form])
 
   const onSubmit = async (values: UserForm) => {
     const payload: Record<string, string | string[]> = {
@@ -171,10 +172,10 @@ export function UsersActionDialog({ currentRow, open, onOpenChange }: Props) {
       form.reset()
       usernameManuallyEdited.current = isEdit
       onOpenChange(false)
-    } catch (err: any) {
-      const errors = err.response?.data ?? {}
+    } catch (err) {
+      const errors = extractApiErrors(err)
       if (Object.keys(errors).length > 0) {
-        handleErrors(errors)
+        handleErrors(errors as Record<string, string>)
       } else {
         toast.error(t('please_try_again'))
       }

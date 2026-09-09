@@ -2,14 +2,13 @@ import { AuthenticatedLayout } from '@/layouts'
 import { Main } from '@/components/layout'
 import { MetricStatCard } from '@/components/metric-stat-card'
 import { X, Download, Users, UserCheck, UserX, ShieldAlert } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useI18n } from '@/i18n/context'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { PageProps } from '@/types'
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import {
@@ -124,7 +123,7 @@ export default function UsersPage({
       await usersApi.delete(id)
       toast.success(t('user_deleted_successfully') || 'Usuario eliminado correctamente')
       queryClient.invalidateQueries({ queryKey: ['users'] })
-    } catch (error: any) {
+    } catch {
       toast.error(t('something_went_wrong') || 'Error al eliminar el usuario')
     }
   }

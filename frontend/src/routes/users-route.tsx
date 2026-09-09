@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, useParams, useLocation } from 'react-router-dom'
 import UsersPage from '@/pages/users/index'
@@ -44,27 +45,32 @@ export default function UsersRoute() {
   if (isEdit) {
     if (userLoading) return <RoutePending />
     if (userError || !userData) return <NotFoundError />
-    return <EditUserPage user={userData as any} roles={roles as any} />
+    return (
+      <EditUserPage
+        user={userData as unknown as ComponentProps<typeof EditUserPage>['user']}
+        roles={roles as unknown as ComponentProps<typeof EditUserPage>['roles']}
+      />
+    )
   }
 
   if (isCreate) {
-    return <CreateUserPage roles={roles as any} />
+    return <CreateUserPage roles={roles as unknown as ComponentProps<typeof CreateUserPage>['roles']} />
   }
 
   if (isShow) {
     if (userLoading) return <RoutePending />
     if (userError || !userData) return <NotFoundError />
-    return <ShowUserPage user={userData as any} />
+    return <ShowUserPage user={userData as unknown as ComponentProps<typeof ShowUserPage>['user']} />
   }
 
   if (listLoading) return <RoutePending />
 
   return (
     <UsersPage
-      users={users as any}
+      users={users as unknown as ComponentProps<typeof UsersPage>['users']}
       stats={listData?.stats ?? { total: 0, activos: 0, inactivos: 0, suspendidos: 0 }}
       filters={filters}
-      roles={roles as any}
+      roles={roles as unknown as ComponentProps<typeof UsersPage>['roles']}
     />
   )
 }

@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select,
   SelectContent,
@@ -17,15 +16,13 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { editUserSchema, EditUserFormValues } from "@/schemas/user.schema"
 import { useNavigate } from "react-router-dom"
-import { Badge } from "@/components/ui/badge"
 import { useI18n } from "@/i18n/context"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { generatePassword } from "@/lib/generate-password"
-import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { pathFor } from "@/lib/app-routes"
 import { PageProps } from "@/types"
 import { usersApi } from "@/services/users-api"
+import { extractApiErrors } from "@/lib/api-utils"
 
 interface Role {
   id: number
@@ -95,7 +92,7 @@ export default function EditUser({
 
   const onSubmit = async (values: EditUserFormValues) => {
     try {
-      const data: any = {
+      const data: Record<string, unknown> = {
         name: values.name,
         username: values.username,
         email: values.email,
@@ -110,13 +107,13 @@ export default function EditUser({
       await usersApi.update(user.id, data)
       toast.success(t('user_updated') || 'Usuario actualizado correctamente')
       navigate(pathFor('admin.users.index'))
-    } catch (error: any) {
-      if (error.response?.data) {
-        const serverErrors = error.response.data
-        Object.entries(serverErrors).forEach(([key, message]) => {
-          setError(key as any, { message: Array.isArray(message) ? message[0] : message as string })
+    } catch (error) {
+      const serverErrors = extractApiErrors(error)
+      Object.entries(serverErrors).forEach(([key, message]) => {
+        setError(key as Parameters<typeof setError>[0], {
+          message: Array.isArray(message) ? message[0] : message,
         })
-      }
+      })
       toast.error(t('please_try_again') || 'Error al actualizar el usuario')
     }
   }

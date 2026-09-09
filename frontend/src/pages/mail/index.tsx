@@ -17,7 +17,7 @@ export default function MailPage() {
     if (layout) {
       try {
         setDefaultLayout(JSON.parse(layout));
-      } catch (e) {
+      } catch {
         console.error("Invalid layout cookie:", layout);
       }
     }
@@ -25,7 +25,7 @@ export default function MailPage() {
     if (collapsed) {
       try {
         setDefaultCollapsed(JSON.parse(collapsed));
-      } catch (e) {
+      } catch {
         console.error("Invalid collapsed cookie:", collapsed);
       }
     }

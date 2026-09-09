@@ -36,6 +36,8 @@ const NotificationList: React.FC = () => {
     };
 
     fetchNotifications();
+    // Fetch once on mount; `t` is only used for an error label and need not retrigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleMarkAsRead = async (id: string) => {

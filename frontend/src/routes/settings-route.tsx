@@ -1,5 +1,4 @@
 import { useParams } from 'react-router-dom'
-import { useAuthStore } from '@/lib/auth'
 
 // Settings pages
 import ProfilePage from '@/pages/settings/profile'
@@ -10,7 +9,6 @@ import AccountPage from '@/pages/settings/account'
 
 export default function SettingsRoute() {
   const { section } = useParams()
-  const user = useAuthStore((s) => s.user)
 
   switch (section) {
     case 'appearance': return <AppearancePage />

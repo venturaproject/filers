@@ -1,4 +1,7 @@
-import { CodeBlockLowlight as TiptapCodeBlockLowlight } from "@tiptap/extension-code-block-lowlight"
+import {
+  CodeBlockLowlight as TiptapCodeBlockLowlight,
+  type CodeBlockLowlightOptions,
+} from "@tiptap/extension-code-block-lowlight"
 import { common, createLowlight } from "lowlight"
 
 export const CodeBlockLowlight = TiptapCodeBlockLowlight.extend({
@@ -11,7 +14,7 @@ export const CodeBlockLowlight = TiptapCodeBlockLowlight.extend({
       HTMLAttributes: {
         class: "block-node",
       },
-    } as any
+    } as CodeBlockLowlightOptions
   },
 })
 

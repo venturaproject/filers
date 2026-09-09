@@ -12,20 +12,24 @@ export function assetUrl(path: string | undefined) {
 }
 
 export function appUrl(
-  path: string | Record<string, any> = "",
-  params: Record<string, any> | undefined = undefined
+  path: string | Record<string, unknown> = "",
+  params: Record<string, unknown> | undefined = undefined
 ) {
   if (!params && typeof path === "object") {
     params = path
     path = ""
   }
 
+  let pathStr = typeof path === "string" ? path : ""
+
   if (params) {
-    const query = new URLSearchParams(params)
-    path = `${path}?${query.toString()}`
+    const query = new URLSearchParams(
+      Object.entries(params).map(([k, v]) => [k, String(v)])
+    )
+    pathStr = `${pathStr}?${query.toString()}`
   }
 
-  if (path.startsWith("/")) path = path.slice(1)
+  if (pathStr.startsWith("/")) pathStr = pathStr.slice(1)
 
-  return `${env.APP_URL}/${path}`.replace(/\/$/, "")
+  return `${env.APP_URL}/${pathStr}`.replace(/\/$/, "")
 }

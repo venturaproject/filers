@@ -1,5 +1,5 @@
 import { AuthenticatedLayout } from "@/layouts"
-import { MoreHorizontal, PlusCircle, Edit, Trash2, Lock, Users } from "lucide-react"
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Lock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,7 +53,7 @@ interface PermissionsPageProps extends PageProps {
   filters?: { search?: string; group?: string }
 }
 
-export default function PermissionsIndex({ permissions, groups: initialGroups = [], filters: initialFilters = {} }: PermissionsPageProps) {
+export default function PermissionsIndex({ permissions, filters: initialFilters = {} }: PermissionsPageProps) {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -84,7 +84,7 @@ export default function PermissionsIndex({ permissions, groups: initialGroups = 
       await permissionsApi.delete(permId)
       toast.success(t('permission_deleted') || 'Permission deleted successfully.')
       queryClient.invalidateQueries({ queryKey: ['permissions'] })
-    } catch (error: any) {
+    } catch {
       toast.error(t('error_deleting_permission') || 'Error deleting permission.')
     }
   }
@@ -111,8 +111,6 @@ export default function PermissionsIndex({ permissions, groups: initialGroups = 
 
     return pages
   }
-
-  const groups = initialGroups.length > 0 ? initialGroups : Array.from(new Set((permissions.data || []).map((p) => getGroupFromName(p.name)))).filter(Boolean)
 
   return (
     <AuthenticatedLayout title={t('permissions') || 'Permissions'}>

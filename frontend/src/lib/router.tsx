@@ -55,7 +55,7 @@ function HydrationSpinner() {
 function makePrivateGuard(loginPath: string) {
   return function PrivateGuard() {
     const { initialized, isAuthenticated, hydrate } = useAuthStore()
-    useEffect(() => { hydrate() }, [])
+    useEffect(() => { hydrate() }, [hydrate])
     if (!initialized) return <HydrationSpinner />
     if (!isAuthenticated()) return <Navigate to={loginPath} replace />
     return <><NavigateSetter /><Outlet /></>
@@ -65,7 +65,7 @@ function makePrivateGuard(loginPath: string) {
 function makeGuestGuard(homePath: string) {
   return function GuestGuard() {
     const { initialized, isAuthenticated, hydrate } = useAuthStore()
-    useEffect(() => { hydrate() }, [])
+    useEffect(() => { hydrate() }, [hydrate])
     if (!initialized) return <HydrationSpinner />
     if (isAuthenticated()) return <Navigate to={homePath} replace />
     return <><NavigateSetter /><Outlet /></>

@@ -19,6 +19,7 @@ import { pathFor } from "@/lib/app-routes"
 import { useQueryClient } from "@tanstack/react-query"
 import { PageProps } from "@/types"
 import { permissionsApi } from "@/services/permissions-api"
+import { extractApiErrors } from "@/lib/api-utils"
 
 interface Permission {
   id: number
@@ -56,9 +57,11 @@ export default function EditPermission({ permission }: EditPermissionPageProps) 
       toast.success(t('permission_updated') || 'Permission updated successfully.')
       queryClient.invalidateQueries({ queryKey: ['permissions'] })
       navigate(pathFor('admin.permissions.index'))
-    } catch (error: any) {
-      if (error.response?.data) {
-        toast.error(Object.values(error.response.data)[0] as string || t('error_updating_permission') || 'Error updating permission.')
+    } catch (error) {
+      const serverErrors = Object.values(extractApiErrors(error))
+      if (serverErrors.length > 0) {
+        const first = serverErrors[0]
+        toast.error((Array.isArray(first) ? first[0] : first) || t('error_updating_permission') || 'Error updating permission.')
       } else {
         toast.error(t('please_try_again') || 'Error. Please try again.')
       }

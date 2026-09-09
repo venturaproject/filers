@@ -6,10 +6,9 @@ import { APP_NAME } from '@/config/env'
 
 export default function SignIn2({
     status,
-    canResetPassword,
   }: {
   status?: string;
-  canResetPassword: boolean;
+  canResetPassword?: boolean;
 }) {
   const { t } = useI18n()
   return (

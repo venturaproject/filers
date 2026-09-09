@@ -46,7 +46,7 @@ export default function Apps() {
 
   return (
     <>
-      <AuthenticatedLayout title={'App Integrations'} withTopNav={false}>
+      <AuthenticatedLayout title={'App Integrations'}>
         <Main fixed>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>

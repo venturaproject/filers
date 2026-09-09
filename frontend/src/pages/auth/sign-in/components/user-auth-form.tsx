@@ -37,8 +37,10 @@ export function UserAuthForm({ className, status, canResetPassword = true, ...pr
       const session = await getAuthAdapter().login(data)
       setAuth(session.user, session.permissions, session.roles)
       navigate('/admin')
-    } catch (err: any) {
-      const message = err.response?.data?.message ?? 'Credenciales incorrectas'
+    } catch (err) {
+      const message =
+        (err as { response?: { data?: { message?: string } } }).response?.data?.message ??
+        'Credenciales incorrectas'
       setError('login', { message })
     }
   }

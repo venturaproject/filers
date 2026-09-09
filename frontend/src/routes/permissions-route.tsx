@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams, useParams, useLocation } from 'react-router-dom'
 import PermissionsPage from '@/pages/permissions/index'
@@ -32,12 +33,22 @@ export default function PermissionsRoute() {
   const permissions = normalizePaginatedPayload(listData)
   const groups: string[] =
     (listData?.groups as string[] | undefined) ??
-    Array.from(new Set((permissions.data || []).map((p: any) => p.name.split('.')[0] || 'other')))
+    Array.from(
+      new Set(
+        (permissions.data || []).map(
+          (p) => String((p as { name?: string }).name ?? '').split('.')[0] || 'other',
+        ),
+      ),
+    )
 
   if (isEdit) {
     if (permissionLoading) return <RoutePending />
     if (permissionError || !permissionData) return <NotFoundError />
-    return <EditPermissionPage permission={permissionData as any} />
+    return (
+      <EditPermissionPage
+        permission={permissionData as unknown as ComponentProps<typeof EditPermissionPage>['permission']}
+      />
+    )
   }
 
   if (isCreate) {
@@ -48,7 +59,7 @@ export default function PermissionsRoute() {
 
   return (
     <PermissionsPage
-      permissions={permissions as any}
+      permissions={permissions as ComponentProps<typeof PermissionsPage>['permissions']}
       groups={groups as string[]}
       filters={filters}
     />
