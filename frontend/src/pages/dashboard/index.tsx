@@ -34,13 +34,8 @@ import NotificationList from '@/components/notification/notification-list'
 import { Clock, FileSpreadsheet, Layers, Timer } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { JobSummary } from '@/services/files-api'
-import {
-  OPERATION_LABEL,
-  ORIGIN_LABEL,
-  STATUS_LABEL,
-  STATUS_VARIANT,
-  formatDuration,
-} from '@/pages/process/jobs-columns'
+import { OPERATION_LABEL, ORIGIN_LABEL, formatDuration } from '@/pages/process/jobs-columns'
+import { JobStatusBadge } from '@/pages/process/status-badge'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -354,9 +349,7 @@ export default function Dashboard({ data }: { data: DashboardData }) {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={STATUS_VARIANT[j.status]}>
-                              {STATUS_LABEL[j.status]}
-                            </Badge>
+                            <JobStatusBadge status={j.status} />
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {j.total_rows.toLocaleString('es-ES')}

@@ -1,6 +1,9 @@
 import { createColumnHelper } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
-import type { JobKind, JobOrigin, JobStatus, JobSummary, Operation } from '@/services/files-api'
+import type { JobKind, JobOrigin, JobSummary, Operation } from '@/services/files-api'
+import { JobStatusBadge, STATUS_LABEL } from './status-badge'
+
+export { STATUS_LABEL }
 
 export const OPERATION_LABEL: Record<Operation, string> = {
   parse: 'Parsear',
@@ -10,20 +13,6 @@ export const OPERATION_LABEL: Record<Operation, string> = {
   transform: 'Transformar',
   pipeline: 'Pipeline',
   batch: 'Lote',
-}
-
-export const STATUS_VARIANT: Record<JobStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  pending: 'outline',
-  running: 'secondary',
-  completed: 'default',
-  failed: 'destructive',
-}
-
-export const STATUS_LABEL: Record<JobStatus, string> = {
-  pending: 'En cola',
-  running: 'Procesando',
-  completed: 'Completado',
-  failed: 'Fallido',
 }
 
 export const KIND_LABEL: Record<JobKind, string> = {
@@ -65,9 +54,7 @@ export function buildJobsColumns() {
     col.accessor('status', {
       id: 'status',
       header: () => 'Estado',
-      cell: (info) => (
-        <Badge variant={STATUS_VARIANT[info.getValue()]}>{STATUS_LABEL[info.getValue()]}</Badge>
-      ),
+      cell: (info) => <JobStatusBadge status={info.getValue()} />,
     }),
     col.accessor('kind', {
       id: 'kind',

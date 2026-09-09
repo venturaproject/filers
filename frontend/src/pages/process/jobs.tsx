@@ -50,11 +50,11 @@ import {
   OPERATION_LABEL,
   ORIGIN_LABEL,
   STATUS_LABEL,
-  STATUS_VARIANT,
   buildJobsColumns,
   formatDuration,
   jobColumnLabels,
 } from './jobs-columns'
+import { JobStatusBadge, OutcomeBadge } from './status-badge'
 
 interface JobFilters {
   search?: string
@@ -324,7 +324,7 @@ export default function JobsPage() {
               <SheetHeader>
                 <SheetTitle className="flex flex-wrap items-center gap-2">
                   {job.label ?? `Trabajo ${job.id.slice(0, 8)}`}
-                  <Badge variant={STATUS_VARIANT[job.status]}>{STATUS_LABEL[job.status]}</Badge>
+                  <JobStatusBadge status={job.status} />
                   <Badge variant="outline" className="font-normal">
                     {OPERATION_LABEL[job.operation] ?? job.operation}
                   </Badge>
@@ -451,9 +451,7 @@ export default function JobsPage() {
                                 )}
                               </TableCell>
                               <TableCell>
-                                <Badge variant={r.status === 'ok' ? 'default' : 'destructive'}>
-                                  {r.status === 'ok' ? 'OK' : 'Error'}
-                                </Badge>
+                                <OutcomeBadge ok={r.status === 'ok'} />
                               </TableCell>
                             </TableRow>
                           ))}

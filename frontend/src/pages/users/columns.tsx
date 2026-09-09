@@ -12,11 +12,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { callTypes } from './data/data'
 import type { UserStatus } from './data/schema'
+import { UserStatusBadge } from './status-badge'
 
 export interface User {
   id: string
@@ -140,17 +139,13 @@ export function buildUsersColumns({
       header: () => t('col_estado') || 'Estado',
       cell: (info) => {
         const status = info.getValue()
-        const cls = callTypes.get(status) ?? ''
         const labels: Record<string, string> = {
           active: t('status_active') || 'Activo',
           inactive: t('status_inactive') || 'Inactivo',
+          invited: t('status_invited') || 'Invitado',
           suspended: t('status_suspended') || 'Suspendido',
         }
-        return (
-          <Badge variant="outline" className={cn('rounded-full capitalize', cls)}>
-            {labels[status] ?? status}
-          </Badge>
-        )
+        return <UserStatusBadge status={status} label={labels[status]} />
       },
     }),
     columnHelper.accessor('role', {

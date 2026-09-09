@@ -7,12 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChevronLeft, Pencil, Clock, Shield } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useI18n } from "@/i18n/context"
-import { cn } from "@/lib/utils"
 import { formatDistanceToNow, format } from "date-fns"
 import { es } from "date-fns/locale"
 import { PageProps } from "@/types"
-import { callTypes } from "./data/data"
 import { UserStatus } from "./data/schema"
+import { UserStatusBadge } from "./status-badge"
 import { pathFor } from "@/lib/app-routes"
 
 interface ActivityLog {
@@ -61,11 +60,11 @@ export default function ShowUser({
   
   const displayName = user.name || user.email
   const createdAt = user.created_at
-  const statusCls = callTypes.get(user.status) ?? ''
 
   const statusLabels: Record<string, string> = {
     active: t('status_active') || 'Activo',
     inactive: t('status_inactive') || 'Inactivo',
+    invited: t('status_invited') || 'Invitado',
     suspended: t('status_suspended') || 'Suspendido',
   }
 
@@ -116,9 +115,7 @@ export default function ShowUser({
                     </div>
                     <div>
                       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">{t('col_estado') || 'Estado'}</p>
-                      <Badge variant="outline" className={cn('rounded-full capitalize', statusCls)}>
-                        {statusLabels[user.status] ?? user.status}
-                      </Badge>
+                      <UserStatusBadge status={user.status} label={statusLabels[user.status]} />
                     </div>
                     <div>
                       <p className="text-muted-foreground text-xs uppercase tracking-wide mb-1">{t('col_fecha_alta') || 'Fecha Alta'}</p>
