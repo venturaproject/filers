@@ -2,6 +2,7 @@
 export
 
 DC   = docker compose -f compose.dev.yml
+DCP  = docker compose -f compose.prod.yml
 SVC  = api
 FE   = frontend
 
@@ -14,6 +15,15 @@ up: ## Start API + frontend in dev mode (hot reload)
 
 down: ## Stop all containers
 	$(DC) down
+
+prod-up: ## Build + start the production stack (nginx + api)
+	$(DCP) up -d --build
+
+prod-down: ## Stop the production stack
+	$(DCP) down
+
+prod-logs: ## Tail production logs
+	$(DCP) logs -f
 
 build: ## Rebuild Docker images
 	$(DC) build
@@ -28,13 +38,21 @@ check: ## cargo check
 	$(DC) exec $(SVC) cargo check
 
 clippy: ## cargo clippy -D warnings
-	$(DC) exec $(SVC) cargo clippy -- -D warnings
+	$(DC) exec $(SVC) cargo clippy --all-targets -- -D warnings
 
 fmt: ## cargo fmt
 	$(DC) exec $(SVC) cargo fmt
 
-test: ## cargo nextest run
-	$(DC) exec $(SVC) cargo nextest run
+test: ## Run the Rust test suite (unit + integration) in the container
+	$(DC) exec $(SVC) cargo test
+
+test-local: ## Run the Rust test suite on the host
+	cargo test
+
+ci: ## fmt check + clippy + tests (host)
+	cargo fmt --check
+	cargo clippy --all-targets -- -D warnings
+	cargo test
 
 tsc: ## TypeScript check (frontend)
 	$(DC) exec $(FE) pnpm tsc --noEmit

@@ -1,14 +1,29 @@
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+      - frontend
+    volumes:
+      - ./infrastructure/nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8085:80"        # single entrypoint: http://localhost:8085
+
   api:
     build:
       context: .
       dockerfile: infrastructure/Dockerfile.dev
+    # Only watch the Rust sources — not frontend/, uploads/, etc.
+    command: cargo watch -w src -w Cargo.toml -w Cargo.lock -x run
     volumes:
       - .:/app
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/app/target
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
+    # Uncomment to also reach the API directly, bypassing nginx:
+    # ports:
+    #   - "8000:8000"
     env_file: .env
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
@@ -21,11 +36,14 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_modules:/app/node_modules
-    ports:
-      - "5173:5173"
+    expose:
+      - "5173"
+    # Uncomment to also reach vite directly, bypassing nginx:
+    # ports:
+    #   - "5173:5173"
     environment:
       VITE_APP_NAME: ${VITE_APP_NAME:-Filers}
-      VITE_APP_URL: ${VITE_APP_URL:-http://localhost:8000}
+      VITE_APP_URL: ${VITE_APP_URL:-http://localhost:8085}
 
 volumes:
   cargo-cache:

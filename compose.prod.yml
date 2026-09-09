@@ -1,0 +1,53 @@
+# Production topology: nginx is the only thing exposed; the Rust API is only
+# reachable on the internal compose network.
+#
+#   docker compose -f compose.prod.yml up -d --build
+#
+# Separate project name so prod images/containers never collide with the dev
+# stack (which shares service names).
+name: boilerplate-rust-api-prod
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
+      PORT: 8000
+      BATCH_BASE_DIR: /data/uploads
+      # Behind the nginx proxy: trust its forwarded headers, mark cookies Secure,
+      # emit HSTS. Lock CORS to your real origin(s) in .env.
+      TRUST_PROXY: "true"
+      SESSION_COOKIE_SECURE: "true"
+      # CORS_ALLOWED_ORIGINS=https://filers.example.com
+    volumes:
+      - uploads:/data/uploads
+    expose:
+      - "8000"          # internal only — no `ports:` mapping
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  nginx:
+    build:
+      context: .
+      dockerfile: infrastructure/nginx/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    # The image ships a self-signed cert so HTTPS works immediately.
+    # Mount a real cert to replace it:
+    # volumes:
+    #   - ./infrastructure/nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  uploads:

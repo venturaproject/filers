@@ -1,0 +1,13 @@
+/target
+**/target
+.git
+.gitignore
+.env
+*.env
+!.env.example
+frontend/node_modules
+frontend/dist
+**/node_modules
+compose*.yml
+Makefile
+*.md

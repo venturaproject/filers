@@ -1,2 +1,7 @@
 /target
 .env
+/uploads/*
+!/uploads/.gitkeep
+
+# Local test spreadsheet (real data — do not commit)
+/input.xlsx
