@@ -19,12 +19,26 @@ export interface ParseError {
   message: string
 }
 
+/** Where the time went (milliseconds). See the Rust `Timings` struct. */
+export interface Timings {
+  open_ms: number
+  read_ms: number
+  convert_ms: number
+  parse_ms: number
+  /** CPU time consumed during the parse. If `parse_ms` >> `parse_cpu_ms` the
+   *  host was CPU-starved — the work is cheap, the wait is contention. */
+  parse_cpu_ms: number
+  upload_ms: number
+  total_ms: number
+}
+
 export interface ParsedFile {
   format: string
   columns: string[]
   data: (string | number | boolean | null)[][]
   stats: ParseStats
   errors: ParseError[]
+  timings: Timings
 }
 
 export interface ProcessOptions {
@@ -49,6 +63,7 @@ export interface FileResult {
   elapsed_ms: number
   status: 'ok' | 'error'
   error: string | null
+  timings?: Timings
 }
 
 export interface JobSummary {

@@ -21,9 +21,55 @@ import {
 } from '@/components/ui/table'
 import { AlertCircle, FileSpreadsheet, Loader2, Upload } from 'lucide-react'
 import { FileDropzone } from '@/components/file-dropzone'
-import { filesApi, type ParsedFile } from '@/services/files-api'
+import { filesApi, type ParsedFile, type Timings } from '@/services/files-api'
 
 const PREVIEW_ROWS = 100
+
+const ms = (n: number) => `${n.toLocaleString('es-ES')} ms`
+
+function TimingsCard({ timings: t }: { timings: Timings }) {
+  // Wall time far above CPU time => the host was starved, not the parser.
+  const starved = t.parse_ms > t.parse_cpu_ms * 1.5 && t.parse_ms - t.parse_cpu_ms > 200
+  const rows: [string, string, string?][] = [
+    ['Abrir archivo', ms(t.open_ms)],
+    ['Leer hoja / stream', ms(t.read_ms), 'descompresión + parseo (calamine)'],
+    ['Convertir celdas', ms(t.convert_ms), 'en paralelo (rayon)'],
+    ['Subida (red)', ms(t.upload_ms)],
+  ]
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Rendimiento</CardTitle>
+        <CardDescription>
+          Procesado en <strong>{ms(t.parse_ms)}</strong> de reloj ·{' '}
+          <strong>{ms(t.parse_cpu_ms)}</strong> de CPU · total extremo a extremo{' '}
+          <strong>{ms(t.total_ms)}</strong>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+          {rows.map(([label, value, hint]) => (
+            <div key={label} className="flex items-baseline justify-between gap-2">
+              <span className="text-muted-foreground">
+                {label}
+                {hint && <span className="ml-1 text-xs opacity-70">· {hint}</span>}
+              </span>
+              <span className="font-mono tabular-nums">{value}</span>
+            </div>
+          ))}
+        </div>
+        {starved && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+            El tiempo de reloj ({ms(t.parse_ms)}) supera con mucho el de CPU (
+            {ms(t.parse_cpu_ms)}): la máquina estaba saturada. El trabajo real son
+            ~{ms(t.parse_cpu_ms)}.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 function ResultTable({ result }: { result: ParsedFile }) {
   const headers =
@@ -159,7 +205,7 @@ export default function ProcessPage() {
                     <span>·</span>
                     <span>{result.stats.columns} columnas</span>
                     <span>·</span>
-                    <span>{result.stats.elapsed_ms} ms</span>
+                    <span>{result.timings.total_ms} ms</span>
                     {result.errors.length > 0 && (
                       <>
                         <span>·</span>
@@ -169,6 +215,8 @@ export default function ProcessPage() {
                   </CardDescription>
                 </CardHeader>
               </Card>
+
+              <TimingsCard timings={result.timings} />
 
               <ResultTable result={result} />
             </>

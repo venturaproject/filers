@@ -470,6 +470,12 @@ export default function JobsPage() {
                               <TableCell className="text-right tabular-nums">{r.columns}</TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {formatDuration(r.elapsed_ms)}
+                                {r.timings && (
+                                  <span className="block text-xs font-normal text-muted-foreground">
+                                    CPU {r.timings.parse_cpu_ms} ms · leer{' '}
+                                    {r.timings.read_ms} ms
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell>
                                 <Badge variant={r.status === 'ok' ? 'default' : 'destructive'}>
