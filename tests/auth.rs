@@ -90,3 +90,40 @@ async fn refresh_endpoint_always_401() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+/// Suspending (or changing the password of) a user must drop their live session
+/// immediately, not wait for the 7-day TTL.
+#[tokio::test]
+async fn suspending_a_user_revokes_their_session() {
+    let mut app = TestApp::new();
+
+    app.login_user().await; // maria, role "user"
+    assert!(app.get("/api/v1/auth/me").await.ok());
+    let maria_cookie = app.snapshot_cookie();
+
+    app.login_admin().await;
+    let users = app.get("/api/v1/users").await;
+    let maria_id = users.json["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["email"] == "maria@filers.test")
+        .and_then(|u| u["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let updated = app
+        .put_json(
+            &format!("/api/v1/users/{maria_id}"),
+            serde_json::json!({ "status": "suspended" }),
+        )
+        .await;
+    assert_eq!(updated.status, StatusCode::OK);
+
+    // Maria's previously-valid cookie is now dead.
+    app.restore_cookie(maria_cookie);
+    assert_eq!(
+        app.get("/api/v1/auth/me").await.status,
+        StatusCode::UNAUTHORIZED
+    );
+}

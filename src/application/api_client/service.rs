@@ -262,63 +262,83 @@ impl ApiClientService {
     }
 
     /// Scope + rate-limit + (for writes) monthly quota. Records the request.
+    ///
+    /// The whole check-and-count is a single atomic mutation, so concurrent
+    /// requests from one client cannot each read a stale counter and slip past
+    /// the limit.
     pub async fn authorize(
         &self,
         client_id: Uuid,
         scope: &str,
         is_write: bool,
     ) -> AppResult<RequestBudget> {
-        let mut client = self.get(client_id).await?;
+        let scope = scope.to_string();
+        let default_rl = self.default_rate_limit;
+        let default_quota = self.default_quota;
 
-        if !client.has_scope(scope) {
-            return Err(AppError::Forbidden);
-        }
+        let client = self
+            .clients
+            .mutate(
+                client_id,
+                Box::new(move |c| {
+                    if !c.has_scope(&scope) {
+                        return Err(AppError::Forbidden);
+                    }
 
-        // Fixed-window rate limit.
-        if let Some(rl) = client.rate_limit.or(self.default_rate_limit) {
-            let now = Utc::now();
-            if (now - client.window_start).num_seconds() >= rl.window_secs {
-                client.window_start = now;
-                client.window_count = 0;
-            }
-            if client.window_count >= rl.count {
-                return Err(AppError::TooManyRequests(format!(
-                    "rate limit exceeded ({})",
-                    rl.to_raw()
-                )));
-            }
-            client.window_count += 1;
-        }
+                    // Fixed-window rate limit.
+                    if let Some(rl) = c.rate_limit.or(default_rl) {
+                        let now = Utc::now();
+                        if (now - c.window_start).num_seconds() >= rl.window_secs {
+                            c.window_start = now;
+                            c.window_count = 0;
+                        }
+                        if c.window_count >= rl.count {
+                            return Err(AppError::TooManyRequests(format!(
+                                "rate limit exceeded ({})",
+                                rl.to_raw()
+                            )));
+                        }
+                        c.window_count += 1;
+                    }
 
-        client.usage.roll();
+                    c.usage.roll();
+                    let quota = c.monthly_page_quota.or(default_quota);
+                    if is_write
+                        && let Some(limit) = quota
+                        && c.usage.pages >= limit
+                    {
+                        return Err(AppError::TooManyRequests(format!(
+                            "monthly page quota exhausted ({}/{limit})",
+                            c.usage.pages
+                        )));
+                    }
+
+                    c.usage.requests += 1;
+                    c.last_used_at = Some(Utc::now());
+                    Ok(())
+                }),
+            )
+            .await?;
+
         let quota = client.monthly_page_quota.or(self.default_quota);
-        if is_write
-            && let Some(limit) = quota
-            && client.usage.pages >= limit
-        {
-            return Err(AppError::TooManyRequests(format!(
-                "monthly page quota exhausted ({}/{limit})",
-                client.usage.pages
-            )));
-        }
-
-        client.usage.requests += 1;
-        client.last_used_at = Some(Utc::now());
-        let remaining = quota.map(|q| q.saturating_sub(client.usage.pages));
-        self.clients.save(client).await?;
-
         Ok(RequestBudget {
             quota_limit: quota,
-            quota_remaining: remaining,
+            quota_remaining: quota.map(|q| q.saturating_sub(client.usage.pages)),
         })
     }
 
-    /// Add processed pages to the current period (best-effort).
+    /// Add processed pages to the current period (best-effort, atomic).
     pub async fn record_pages(&self, client_id: Uuid, pages: u64) {
-        if let Ok(Some(mut client)) = self.clients.find(client_id).await {
-            client.usage.roll();
-            client.usage.pages += pages;
-            let _ = self.clients.save(client).await;
-        }
+        let _ = self
+            .clients
+            .mutate(
+                client_id,
+                Box::new(move |c| {
+                    c.usage.roll();
+                    c.usage.pages = c.usage.pages.saturating_add(pages);
+                    Ok(())
+                }),
+            )
+            .await;
     }
 }

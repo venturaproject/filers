@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
+use uuid::Uuid;
 
 use crate::domain::auth::{entities::Session, repository::SessionRepository};
 use crate::errors::AppResult;
@@ -48,6 +49,11 @@ impl SessionRepository for MemorySessionRepository {
 
     async fn delete(&self, token: &str) -> AppResult<()> {
         self.store.remove(token);
+        Ok(())
+    }
+
+    async fn delete_for_user(&self, user_id: Uuid) -> AppResult<()> {
+        self.store.retain(|_, s| s.user_id != user_id);
         Ok(())
     }
 }

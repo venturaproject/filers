@@ -56,6 +56,26 @@ async fn rejects_unsupported_format() {
 }
 
 #[tokio::test]
+async fn rejects_content_that_does_not_match_the_extension() {
+    let mut app = TestApp::new();
+    // A `.xlsx` that is not a ZIP archive — never handed to calamine.
+    let r = key_upload(
+        &mut app,
+        "/api/process",
+        "fake.xlsx",
+        b"this is not a spreadsheet",
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        r.json["error"]
+            .as_str()
+            .unwrap()
+            .contains("does not look like")
+    );
+}
+
+#[tokio::test]
 async fn oversized_upload_is_rejected() {
     let mut app = TestApp::new();
     // test_config caps at 5 MB.

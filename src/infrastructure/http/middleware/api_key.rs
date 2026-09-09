@@ -7,7 +7,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    domain::{auth::entities::User, processing::entities::JobOrigin},
+    domain::{
+        auth::entities::{User, UserStatus},
+        processing::entities::JobOrigin,
+    },
     errors::AppError,
     state::AppState,
 };
@@ -66,6 +69,9 @@ impl FromRequestParts<Arc<AppState>> for ApiPrincipal {
         let key = api_key(&parts.headers).ok_or(AppError::Unauthorized)?;
 
         if let Some(user) = state.auth.users.find_by_api_key(key).await? {
+            if user.status != UserStatus::Active {
+                return Err(AppError::Unauthorized);
+            }
             return Ok(ApiPrincipal::User(Box::new(user)));
         }
         if state.config.is_valid_key(key) {

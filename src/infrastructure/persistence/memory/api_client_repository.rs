@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::domain::api_client::{
     entities::{ApiClient, ClientToken},
-    repository::{ApiClientRepository, ClientTokenRepository},
+    repository::{ApiClientRepository, ClientMutation, ClientTokenRepository},
 };
 use crate::errors::{AppError, AppResult};
 
@@ -60,6 +60,17 @@ impl ApiClientRepository for MemoryApiClientRepository {
         }
         self.store.insert(client.id, client);
         Ok(())
+    }
+
+    async fn mutate(&self, id: Uuid, f: ClientMutation<'_>) -> AppResult<ApiClient> {
+        // `get_mut` holds the entry's shard lock for the whole closure, so
+        // concurrent `mutate` calls for the same client run one at a time.
+        let mut entry = self
+            .store
+            .get_mut(&id)
+            .ok_or_else(|| AppError::NotFound(format!("API client {id}")))?;
+        f(entry.value_mut())?;
+        Ok(entry.clone())
     }
 }
 

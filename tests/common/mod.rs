@@ -261,6 +261,16 @@ impl TestApp {
     pub fn logout_local(&mut self) {
         self.cookie = None;
     }
+
+    /// Grab / restore the active session cookie, to juggle two identities in one
+    /// test (e.g. a user session that an admin then invalidates).
+    pub fn snapshot_cookie(&self) -> Option<String> {
+        self.cookie.clone()
+    }
+
+    pub fn restore_cookie(&mut self, cookie: Option<String>) {
+        self.cookie = cookie;
+    }
 }
 
 // ── Fixtures ───────────────────────────────────────────────────────────────

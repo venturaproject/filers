@@ -20,4 +20,6 @@ pub trait SessionRepository: Send + Sync {
     async fn create(&self, session: Session) -> AppResult<()>;
     async fn find(&self, token: &str) -> AppResult<Option<Session>>;
     async fn delete(&self, token: &str) -> AppResult<()>;
+    /// Drop every session for a user — on password change, suspend, or delete.
+    async fn delete_for_user(&self, user_id: Uuid) -> AppResult<()>;
 }

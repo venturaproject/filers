@@ -11,6 +11,11 @@ use crate::domain::processing::entities::{
 };
 use crate::errors::{AppError, AppResult};
 
+/// Hard ceiling on the sheet size we will materialise, so a small "zip bomb"
+/// spreadsheet (a few MB that expands to a billion cells) cannot exhaust memory.
+/// ~57x the 1.1M-cell real-world sample.
+const MAX_CELLS: u64 = 64_000_000;
+
 pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult<ParsedFile> {
     let start = Instant::now();
     let cpu_start = process_cpu_time();
@@ -40,7 +45,8 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
                 .worksheet_range_ref(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
             timings.read_ms = t_read.elapsed().as_millis();
-            Ok(assemble(&range, format, opts, start, cpu_start, timings))
+            guard_size(&range)?;
+            assemble(&range, format, opts, start, cpu_start, timings)
         }
         // `xls` / `ods` only expose the owned `Range<Data>` path.
         _ => {
@@ -48,9 +54,27 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
                 .worksheet_range(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
             timings.read_ms = t_read.elapsed().as_millis();
-            Ok(assemble(&range, format, opts, start, cpu_start, timings))
+            guard_size(&range)?;
+            assemble(&range, format, opts, start, cpu_start, timings)
         }
     }
+}
+
+/// Reject a sheet whose dense cell count is over [`MAX_CELLS`], before we build
+/// a second copy of it as JSON values or a multi-hundred-MB response.
+///
+/// calamine has already materialised the sheet at this point (no streaming
+/// API), so this bounds the blast radius rather than preventing the first
+/// allocation.
+fn guard_size<D: CellType>(range: &Range<D>) -> AppResult<()> {
+    let (height, width) = range.get_size();
+    let cells = (height as u64).saturating_mul(width as u64);
+    if cells > MAX_CELLS {
+        return Err(AppError::BadRequest(format!(
+            "sheet has {cells} cells ({height}x{width}); the limit is {MAX_CELLS}"
+        )));
+    }
+    Ok(())
 }
 
 /// Shared row-processing over either `Range<Data>` (owned) or `Range<DataRef>`
@@ -62,7 +86,7 @@ fn assemble<D: CellType + DataType + Sync>(
     start: Instant,
     cpu_start: std::time::Duration,
     mut timings: Timings,
-) -> ParsedFile {
+) -> AppResult<ParsedFile> {
     let width = range.width();
     let all_rows: Vec<&[D]> = range.rows().collect();
 
@@ -76,7 +100,7 @@ fn assemble<D: CellType + DataType + Sync>(
                 idx += 1;
                 row.iter().map(cell_to_header).collect()
             }
-            None => return empty_result(format, start),
+            None => return Ok(empty_result(format, start)),
         }
     } else {
         (0..width).map(col_letter).collect()
@@ -104,7 +128,7 @@ fn assemble<D: CellType + DataType + Sync>(
     timings.parse_ms = start.elapsed().as_millis();
     timings.parse_cpu_ms = process_cpu_time().saturating_sub(cpu_start).as_millis();
 
-    ParsedFile {
+    Ok(ParsedFile {
         format,
         stats: ParseStats {
             total_rows,
@@ -116,7 +140,7 @@ fn assemble<D: CellType + DataType + Sync>(
         data,
         errors,
         timings,
-    }
+    })
 }
 
 /// Convert a window of spreadsheet rows into JSON cells, in parallel.

@@ -22,6 +22,12 @@ pub struct Config {
     pub trust_proxy: bool,
     /// Per-IP budget for the auth endpoints: `(max_attempts, window_seconds)`.
     pub auth_rate_limit: (u32, u64),
+    /// Seed the two demo `user` accounts (`maria@` / `carlos@`, password
+    /// `demo1234`). Off by default — never enable in production.
+    pub seed_demo_users: bool,
+    /// `APP_ENV` is `production` / `prod`. Turns [`Config::validate`] from
+    /// warnings into hard startup errors.
+    pub production: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -96,6 +102,75 @@ impl Config {
                 })
                 .filter(|(n, w): &(u32, u64)| *n > 0 && *w > 0)
                 .unwrap_or((10, 60)),
+            seed_demo_users: env::var("SEED_DEMO_USERS")
+                .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
+            production: env::var("APP_ENV")
+                .map(|v| matches!(v.trim().to_lowercase().as_str(), "production" | "prod"))
+                .unwrap_or(false),
+        }
+    }
+
+    /// Startup sanity checks. Returns `(errors, warnings)`.
+    ///
+    /// In production (`APP_ENV=production`) the errors are fatal — `main` refuses
+    /// to boot. Outside production everything is a warning so local dev with the
+    /// bundled defaults still works.
+    pub fn validate(&self) -> (Vec<String>, Vec<String>) {
+        const WEAK_PASSWORDS: &[&str] = &[
+            "admin1234",
+            "password",
+            "changeme",
+            "change-me",
+            "secret",
+            "demo1234",
+        ];
+        const WEAK_KEYS: &[&str] = &["dev-key", "change-me-in-production", "changeme", "test-key"];
+
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        let pw = self.seed_user.password.as_str();
+        if WEAK_PASSWORDS.contains(&pw) || pw.len() < 12 {
+            errors.push(format!(
+                "SEED_USER_PASSWORD is weak or a known default ({} chars) — set a strong value",
+                pw.len()
+            ));
+        }
+        if self.api_keys.is_empty() {
+            warnings.push("API_KEYS is empty — service-key access is disabled".into());
+        }
+        if self
+            .api_keys
+            .iter()
+            .any(|k| WEAK_KEYS.contains(&k.as_str()))
+        {
+            errors.push("API_KEYS contains a known default key — rotate it".into());
+        }
+        if self.seed_demo_users {
+            errors.push(
+                "SEED_DEMO_USERS is enabled — the maria@/carlos@ accounts use a public password"
+                    .into(),
+            );
+        }
+        if self.cors_origins.iter().any(|o| o == "*") {
+            warnings.push(
+                "CORS_ALLOWED_ORIGINS is '*' — set explicit origins for a browser-facing deployment"
+                    .into(),
+            );
+        }
+        if !self.session_cookie_secure {
+            warnings.push(
+                "SESSION_COOKIE_SECURE is false — the session cookie has no `Secure` flag".into(),
+            );
+        }
+
+        if self.production {
+            (errors, warnings)
+        } else {
+            // Dev: nothing is fatal.
+            warnings.append(&mut errors);
+            (Vec::new(), warnings)
         }
     }
 
@@ -192,7 +267,36 @@ mod tests {
             ext_default_monthly_page_quota: None,
             trust_proxy: false,
             auth_rate_limit: (10, 60),
+            seed_demo_users: false,
+            production: false,
         }
+    }
+
+    #[test]
+    fn validate_is_advisory_in_dev_but_fatal_in_prod() {
+        // Bundled dev defaults: warnings only, never fatal.
+        let mut c = cfg(".");
+        c.api_keys = vec!["dev-key".into()];
+        c.seed_user.password = "admin1234".into();
+        let (errors, warnings) = c.validate();
+        assert!(errors.is_empty());
+        assert!(!warnings.is_empty());
+
+        // Same config in production: the weak password + default key are fatal.
+        c.production = true;
+        let (errors, _) = c.validate();
+        assert!(errors.iter().any(|e| e.contains("SEED_USER_PASSWORD")));
+        assert!(errors.iter().any(|e| e.contains("API_KEYS")));
+
+        // A hardened production config passes.
+        c.api_keys = vec!["S3rvïce-Key-9f2a8c1d4e6b".into()];
+        c.seed_user.password = "a-long-strong-passphrase".into();
+        c.cors_origins = vec!["https://app.example.com".into()];
+        c.session_cookie_secure = true;
+        c.seed_demo_users = false;
+        let (errors, warnings) = c.validate();
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]

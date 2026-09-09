@@ -72,6 +72,12 @@ impl ProcessingService {
         let format = FileFormat::from_extension(ext)
             .ok_or_else(|| AppError::UnsupportedFormat(ext.to_string()))?;
 
+        if !content_matches(&format, bytes) {
+            return Err(AppError::BadRequest(format!(
+                "file content does not look like a valid .{ext}"
+            )));
+        }
+
         match &format {
             FileFormat::Csv => parsers::csv::parse(bytes, opts),
             FileFormat::Xlsx | FileFormat::Xls | FileFormat::Ods => {
@@ -201,11 +207,31 @@ impl ProcessingService {
     }
 }
 
+/// Upper bound on files scanned by one batch job, so a directory with tens of
+/// thousands of files cannot spawn an unbounded number of parse tasks.
+pub const MAX_BATCH_FILES: usize = 500;
+
 #[derive(Debug, Deserialize)]
 pub struct BatchRequest {
     /// Sub-directory to scan, relative to BATCH_BASE_DIR. `None` = the base dir.
     pub path: Option<String>,
     pub options: Option<ParseOptions>,
+}
+
+/// Cheap magic-byte check that the upload matches its claimed extension.
+/// xlsx/ods are ZIP archives; xls is an OLE2 compound file; CSV is text (we only
+/// reject an obviously-binary payload).
+fn content_matches(format: &FileFormat, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    match format {
+        FileFormat::Xlsx | FileFormat::Ods => {
+            bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06")
+        }
+        FileFormat::Xls => bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]),
+        FileFormat::Csv => !bytes.iter().take(8192).any(|&b| b == 0),
+    }
 }
 
 async fn collect_files(dir: &Path) -> AppResult<Vec<PathBuf>> {
@@ -224,5 +250,12 @@ async fn collect_files(dir: &Path) -> AppResult<Vec<PathBuf>> {
         }
     }
     paths.sort();
+
+    if paths.len() > MAX_BATCH_FILES {
+        return Err(AppError::BadRequest(format!(
+            "directory holds {} processable files; the batch limit is {MAX_BATCH_FILES}",
+            paths.len()
+        )));
+    }
     Ok(paths)
 }

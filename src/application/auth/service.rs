@@ -7,8 +7,10 @@ use argon2::{
 use chrono::{Duration, Utc};
 use rand::{Rng, distributions::Alphanumeric};
 
+use uuid::Uuid;
+
 use crate::domain::auth::{
-    entities::{Session, User},
+    entities::{Session, User, UserStatus},
     repository::{SessionRepository, UserRepository},
 };
 use crate::errors::{AppError, AppResult};
@@ -76,14 +78,29 @@ impl AuthService {
             return Err(AppError::Unauthorized);
         }
 
-        self.users
+        let user = self
+            .users
             .find_by_id(session.user_id)
             .await?
-            .ok_or(AppError::Unauthorized)
+            .ok_or(AppError::Unauthorized)?;
+
+        // A user who has since been suspended/deactivated must not keep a live
+        // session — drop it so every other session of theirs dies too.
+        if user.status != UserStatus::Active {
+            let _ = self.sessions.delete_for_user(user.id).await;
+            return Err(AppError::Unauthorized);
+        }
+
+        Ok(user)
     }
 
     pub async fn logout(&self, token: &str) -> AppResult<()> {
         self.sessions.delete(token).await
+    }
+
+    /// Invalidate every session for a user (password change, suspend, delete).
+    pub async fn invalidate_user_sessions(&self, user_id: Uuid) -> AppResult<()> {
+        self.sessions.delete_for_user(user_id).await
     }
 }
 

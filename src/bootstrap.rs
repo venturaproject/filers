@@ -44,6 +44,7 @@ pub fn build_state(config: Config) -> Arc<AppState> {
 
     let users = Arc::new(MemoryUserRepository::new(default_seed_users(
         &config.seed_user,
+        config.seed_demo_users,
     )));
     let sessions = Arc::new(MemorySessionRepository::new());
     let auth = Arc::new(AuthService::new(users, sessions));
@@ -76,13 +77,25 @@ pub fn build_app(config: Config) -> axum::Router {
     router::build(build_state(config))
 }
 
-/// The accounts seeded on startup: the admin plus two demo `user`s.
-pub fn default_seed_users(seed: &SeedUser) -> Vec<User> {
-    vec![
-        seed_admin(seed),
-        demo_user("María López", "maria.lopez", "maria@filers.test", "user"),
-        demo_user("Carlos Ruiz", "carlos.ruiz", "carlos@filers.test", "user"),
-    ]
+/// The accounts seeded on startup: always the admin; the two demo `user`s only
+/// when `include_demo` is set (`SEED_DEMO_USERS=true` — never in production).
+pub fn default_seed_users(seed: &SeedUser, include_demo: bool) -> Vec<User> {
+    let mut users = vec![seed_admin(seed)];
+    if include_demo {
+        users.push(demo_user(
+            "María López",
+            "maria.lopez",
+            "maria@filers.test",
+            "user",
+        ));
+        users.push(demo_user(
+            "Carlos Ruiz",
+            "carlos.ruiz",
+            "carlos@filers.test",
+            "user",
+        ));
+    }
+    users
 }
 
 fn seed_admin(seed: &SeedUser) -> User {
@@ -141,5 +154,7 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         ext_default_monthly_page_quota: None,
         trust_proxy: false,
         auth_rate_limit: (5, 60),
+        seed_demo_users: true,
+        production: false,
     }
 }

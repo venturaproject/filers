@@ -16,8 +16,23 @@ async fn main() {
     let config = Config::from_env();
     let port = config.port;
 
+    let (errors, warnings) = config.validate();
+    for w in &warnings {
+        tracing::warn!("config: {w}");
+    }
+    if !errors.is_empty() {
+        for e in &errors {
+            tracing::error!("config: {e}");
+        }
+        eprintln!(
+            "\nRefusing to start in production with {} config error(s) above.\n\
+             Fix them or unset APP_ENV=production to boot with warnings only.\n",
+            errors.len()
+        );
+        std::process::exit(1);
+    }
+
     tracing::info!(email = %config.seed_user.email, "seeded admin user");
-    tracing::debug!(api_key = %config.seed_user.api_key, "seeded admin api key");
 
     let app = bootstrap::build_app(config);
 

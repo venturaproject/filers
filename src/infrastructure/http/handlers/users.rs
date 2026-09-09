@@ -230,7 +230,11 @@ pub async fn update(
         let u = username.trim();
         user.username = (!u.is_empty()).then(|| u.to_string());
     }
+    let mut revoke_sessions = false;
     if let Some(status) = body.status.as_deref().and_then(UserStatus::parse) {
+        if status != UserStatus::Active && user.status == UserStatus::Active {
+            revoke_sessions = true;
+        }
         user.status = status;
     }
     if let Some(pw) = body.password.as_deref().filter(|s| !s.is_empty()) {
@@ -240,14 +244,20 @@ pub async fn update(
             ));
         }
         user.password_hash = hash_password(pw)?;
+        revoke_sessions = true;
     }
     if body.wants_role_change() {
         let role_names = resolve_role_names(&state, &body).await?;
         user.role = Role::from_role_names(&role_names);
         user.role_names = role_names;
+        // A privilege change should not ride on an old cookie.
+        revoke_sessions = true;
     }
 
     state.auth.users.update(user.clone()).await?;
+    if revoke_sessions {
+        state.auth.invalidate_user_sessions(user.id).await?;
+    }
     let lookup = role_id_lookup(&state).await?;
     Ok(Json(user.to_admin_json(&lookup)))
 }
@@ -264,5 +274,6 @@ pub async fn destroy(
         ));
     }
     state.auth.users.delete(id).await?;
+    state.auth.invalidate_user_sessions(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
