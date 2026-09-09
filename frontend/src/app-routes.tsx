@@ -23,6 +23,7 @@ export const privateRoutes: RouteObject[] = [
   { path: '/admin', element: <DashboardRoute /> },
 
   { path: '/admin/process', element: <ProcessRoute /> },
+  { path: '/admin/compare', element: <ProcessRoute /> },
   { path: '/admin/jobs', element: <ProcessRoute /> },
   { path: '/admin/jobs/:id', element: <ProcessRoute /> },
 

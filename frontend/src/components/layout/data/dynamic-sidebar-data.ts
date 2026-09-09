@@ -1,6 +1,7 @@
 import {
   IconBrowserCheck,
   IconChecklist,
+  IconGitCompare,
   IconLayoutDashboard,
   IconNotification,
   IconPalette,
@@ -42,6 +43,12 @@ export const DynamicSidebarData = () => {
             title: 'Banco de trabajo',
             url: '/admin/process',
             icon: IconUpload,
+            permission: 'files.process',
+          },
+          {
+            title: 'Comparar',
+            url: '/admin/compare',
+            icon: IconGitCompare,
             permission: 'files.process',
           },
           {
