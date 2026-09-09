@@ -16,7 +16,7 @@ up: ## Start API + frontend in dev mode (hot reload)
 down: ## Stop all containers
 	$(DC) down
 
-prod-up: ## Build + start the production stack (nginx + api)
+prod-up: ## Build + start the production stack (postgres + api + nginx)
 	$(DCP) up -d --build
 
 prod-down: ## Stop the production stack

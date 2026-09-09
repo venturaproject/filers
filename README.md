@@ -136,7 +136,8 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `API_KEYS` | `change-me-in-production` | comma-separated service keys (`x-api-key`); empty disables them |
 | `MAX_FILE_SIZE_MB` | `100` | upload cap (keep in sync with nginx `client_max_body_size`) |
 | `BATCH_BASE_DIR` | `./uploads` | root for `POST /api/process/batch`; `..` and absolute paths rejected |
-| `DATABASE_URL` | – | Postgres for users/sessions/API-clients/tokens/**jobs**. Unset → in-memory (lost on restart) |
+| `DATABASE_URL` | derived from `POSTGRES_*` | Postgres for users/sessions/API-clients/tokens/**jobs**. Unset *and* no bundled Postgres → in-memory (lost on restart) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `filers` / `filers` / `filers` | credentials for the bundled Postgres (both compose files); ignored when `DATABASE_URL` is external. **Change the password for real deployments** |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | – | default batch-completion webhook; secret enables `X-Filers-Signature: sha256=<hmac>` |
 | `CORS_ALLOWED_ORIGINS` | `*` | comma-separated origins; `*` in prod disables credentialed cookie CORS |
 | `TRUST_PROXY` | `true` | trust `X-Forwarded-For` / `X-Real-IP` (true behind the bundled nginx) |
@@ -392,8 +393,9 @@ to force it on (allowed in production, but the startup log warns).
 | roles & permissions | in-memory | in-memory (static seeded catalogue) |
 
 Migrations in `migrations/` run automatically on connect (`sqlx::migrate!`).
-`compose.dev.yml` ships a `postgres:17-alpine` and points the API at it by
-default.
+Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:17-alpine` and
+point the API at it by default; set `DATABASE_URL` in `.env` to use an external
+instance instead.
 
 ---
 
@@ -452,20 +454,23 @@ fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
 ```bash
 cp .env.example .env
 # edit: APP_ENV=production, strong SEED_USER_PASSWORD, real API_KEYS,
-#       DATABASE_URL=<managed postgres>, CORS_ALLOWED_ORIGINS=https://your.domain,
+#       strong POSTGRES_PASSWORD, CORS_ALLOWED_ORIGINS=https://your.domain,
 #       SEED_DEMO_USERS=false
-make prod-up      # nginx (80/443) + api, internal-only api
+make prod-up      # postgres + api + nginx (80/443), only nginx exposed
 ```
 
-`compose.prod.yml` exposes **only** nginx; the API is reachable only on the
-internal network. The nginx image ships a self-signed cert so HTTPS works
-immediately — mount a real one at `/etc/nginx/certs/{fullchain,privkey}.pem` to
-replace it. It sets `TRUST_PROXY=true`, `SESSION_COOKIE_SECURE=true` and
-`BATCH_BASE_DIR=/data/uploads` (a named volume).
+`compose.prod.yml` runs three services: a bundled **`postgres:17-alpine`**
+(named volume `postgres-data`, internal-only), the **API** (internal-only,
+health-checked, waits for Postgres to be healthy), and **nginx** — the only
+thing with published ports. The nginx image ships a self-signed cert so HTTPS
+works immediately; mount a real one at `/etc/nginx/certs/{fullchain,privkey}.pem`
+to replace it. The API runs with `TRUST_PROXY=true`, `SESSION_COOKIE_SECURE=true`
+and `BATCH_BASE_DIR=/data/uploads`.
 
-> Production requires a reachable `DATABASE_URL` (the startup check is fatal
-> without one). Point it at a managed Postgres, or add a `postgres` service to
-> `compose.prod.yml`.
+`DATABASE_URL` is derived from `POSTGRES_USER` / `POSTGRES_PASSWORD` /
+`POSTGRES_DB`. To use an **external** managed Postgres instead, set
+`DATABASE_URL` explicitly in `.env` (the bundled `postgres` service is then
+unused).
 
 ---
 

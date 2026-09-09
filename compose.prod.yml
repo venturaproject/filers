@@ -1,5 +1,5 @@
-# Production topology: nginx is the only thing exposed; the Rust API is only
-# reachable on the internal compose network.
+# Production topology: postgres + api + nginx. nginx is the only thing exposed;
+# Postgres and the Rust API are reachable only on the internal compose network.
 #
 #   docker compose -f compose.prod.yml up -d --build
 #
@@ -8,16 +8,42 @@
 name: boilerplate-rust-api-prod
 
 services:
+  # Bundled Postgres. Point the app at an external managed instance instead by
+  # setting DATABASE_URL in .env — this service is then unused (skip it with
+  # `docker compose -f compose.prod.yml up -d --scale postgres=0`).
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-filers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filers}   # ← override in .env
+      POSTGRES_DB: ${POSTGRES_DB:-filers}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"          # internal only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-filers} -d ${POSTGRES_DB:-filers}"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   api:
     build:
       context: .
       dockerfile: infrastructure/Dockerfile
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file: .env
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
       PORT: 8000
       BATCH_BASE_DIR: /data/uploads
+      # Use the bundled Postgres unless .env sets an external DATABASE_URL.
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-filers}:${POSTGRES_PASSWORD:-filers}@postgres:5432/${POSTGRES_DB:-filers}}
       # Behind the nginx proxy: trust its forwarded headers, mark cookies Secure,
       # emit HSTS. Lock CORS to your real origin(s) in .env.
       TRUST_PROXY: "true"
@@ -51,3 +77,4 @@ services:
 
 volumes:
   uploads:
+  postgres-data:

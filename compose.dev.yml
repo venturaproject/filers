@@ -14,9 +14,9 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: filers
-      POSTGRES_PASSWORD: filers
-      POSTGRES_DB: filers
+      POSTGRES_USER: ${POSTGRES_USER:-filers}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filers}
+      POSTGRES_DB: ${POSTGRES_DB:-filers}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     expose:
@@ -25,7 +25,7 @@ services:
     # ports:
     #   - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U filers"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-filers} -d ${POSTGRES_DB:-filers}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -52,7 +52,7 @@ services:
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
       # Point the app at the bundled Postgres unless .env overrides it.
-      DATABASE_URL: ${DATABASE_URL:-postgres://filers:filers@postgres:5432/filers}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-filers}:${POSTGRES_PASSWORD:-filers}@postgres:5432/${POSTGRES_DB:-filers}}
 
   frontend:
     build:
