@@ -217,6 +217,10 @@ pub struct Job {
     pub origin: JobOrigin,
     /// Who triggered it — client name, user email, or `None` for a service key.
     pub actor: Option<String>,
+    /// Stable id of the principal that owns this job (user id / client id).
+    /// `None` for a service key. Used to scope `GET /api/jobs/:id`; not exposed.
+    #[serde(skip)]
+    pub owner: Option<String>,
     /// Human label — first file name, or "N archivos".
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -234,6 +238,7 @@ impl Job {
         kind: JobKind,
         origin: JobOrigin,
         actor: Option<String>,
+        owner: Option<String>,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -241,6 +246,7 @@ impl Job {
             kind,
             origin,
             actor,
+            owner,
             label: None,
             created_at: Utc::now(),
             completed_at: None,
@@ -257,9 +263,10 @@ impl Job {
         filename: String,
         origin: JobOrigin,
         actor: Option<String>,
+        owner: Option<String>,
         outcome: Result<(u64, u32, Timings), (String, u128)>,
     ) -> Self {
-        let mut job = Job::new(1, JobKind::Sync, origin, actor);
+        let mut job = Job::new(1, JobKind::Sync, origin, actor, owner);
         job.label = Some(filename.clone());
         let now = Utc::now();
         job.completed_at = Some(now);

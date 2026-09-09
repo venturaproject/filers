@@ -22,6 +22,9 @@ pub struct Config {
     pub trust_proxy: bool,
     /// Per-IP budget for the auth endpoints: `(max_attempts, window_seconds)`.
     pub auth_rate_limit: (u32, u64),
+    /// Per-IP budget for every other `/api` route. `None` = disabled
+    /// (`API_RATE_LIMIT=off`).
+    pub api_rate_limit: Option<(u32, u64)>,
     /// Seed the two demo `user` accounts (`maria@` / `carlos@`, password
     /// `demo1234`). Off by default — never enable in production.
     pub seed_demo_users: bool,
@@ -105,6 +108,15 @@ impl Config {
                 })
                 .filter(|(n, w): &(u32, u64)| *n > 0 && *w > 0)
                 .unwrap_or((10, 60)),
+            api_rate_limit: match env::var("API_RATE_LIMIT").ok().as_deref().map(str::trim) {
+                Some("off") | Some("0") => None,
+                Some(v) => v
+                    .split_once('/')
+                    .and_then(|(n, w)| Some((n.trim().parse().ok()?, w.trim().parse().ok()?)))
+                    .filter(|(n, w): &(u32, u64)| *n > 0 && *w > 0)
+                    .or(Some((120, 60))),
+                None => Some((120, 60)),
+            },
             seed_demo_users: env::var("SEED_DEMO_USERS")
                 .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
                 .unwrap_or(false),
@@ -280,6 +292,7 @@ mod tests {
             ext_default_monthly_page_quota: None,
             trust_proxy: false,
             auth_rate_limit: (10, 60),
+            api_rate_limit: Some((120, 60)),
             seed_demo_users: false,
             production: false,
             database_url: None,

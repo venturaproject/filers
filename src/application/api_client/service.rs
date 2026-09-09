@@ -7,7 +7,9 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::domain::api_client::{
-    entities::{ACCESS_TTL_SECS, ApiClient, ClientToken, REFRESH_TTL_SECS, RateLimit, Usage},
+    entities::{
+        ACCESS_TTL_SECS, ApiClient, ClientToken, REFRESH_TTL_SECS, RateLimit, RefreshOutcome, Usage,
+    },
     repository::{ApiClientRepository, ClientTokenRepository},
 };
 use crate::errors::{AppError, AppResult};
@@ -205,14 +207,18 @@ impl ApiClientService {
 
     pub async fn refresh(&self, refresh_token: &str) -> AppResult<TokenGrant> {
         let hash = sha256_hex(refresh_token);
-        let token = self
-            .tokens
-            .find_by_refresh_hash(&hash)
-            .await?
-            .ok_or(AppError::Unauthorized)?;
 
-        // Single-use: consume the old refresh token first.
-        self.tokens.delete_by_refresh_hash(&hash).await?;
+        let token = match self.tokens.consume_refresh(&hash).await? {
+            RefreshOutcome::Fresh(token) => token,
+            RefreshOutcome::Unknown => return Err(AppError::Unauthorized),
+            RefreshOutcome::Reused(client_id) => {
+                // The token was already spent once — treat this as a stolen
+                // token and cut the whole family loose.
+                let _ = self.tokens.delete_for_client(client_id).await;
+                tracing::warn!(%client_id, "refresh-token reuse detected — revoked all tokens");
+                return Err(AppError::Unauthorized);
+            }
+        };
 
         let client = self
             .clients
@@ -235,6 +241,7 @@ impl ApiClientService {
                 refresh_hash: sha256_hex(&refresh),
                 access_expires_at: now + Duration::seconds(ACCESS_TTL_SECS),
                 refresh_expires_at: now + Duration::seconds(REFRESH_TTL_SECS),
+                consumed_at: None,
             })
             .await?;
         Ok(TokenGrant {

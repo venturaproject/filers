@@ -32,5 +32,13 @@ pub async fn handle(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Job {id}")))?;
 
+    // Scope to the creating principal — a 404 (not 403) so a valid caller can't
+    // probe which job ids exist for other tenants.
+    let owned =
+        principal.is_privileged() || (job.owner.is_some() && job.owner == principal.owner_key());
+    if !owned {
+        return Err(AppError::NotFound(format!("Job {id}")));
+    }
+
     Ok(Json(job))
 }

@@ -3,7 +3,7 @@ use sqlx::{PgPool, Row, postgres::PgRow};
 use uuid::Uuid;
 
 use crate::domain::api_client::{
-    entities::{ApiClient, ClientToken, RateLimit, Usage},
+    entities::{ApiClient, ClientToken, RateLimit, RefreshOutcome, Usage},
     repository::{ApiClientRepository, ClientMutation, ClientTokenRepository},
 };
 use crate::errors::{AppError, AppResult};
@@ -198,8 +198,8 @@ impl PgClientTokenRepository {
     }
 }
 
-const TOKEN_COLS: &str =
-    "access_hash, client_id, scopes, refresh_hash, access_expires_at, refresh_expires_at";
+const TOKEN_COLS: &str = "access_hash, client_id, scopes, refresh_hash, access_expires_at, \
+    refresh_expires_at, consumed_at";
 
 fn row_to_token(row: PgRow) -> ClientToken {
     ClientToken {
@@ -209,15 +209,20 @@ fn row_to_token(row: PgRow) -> ClientToken {
         refresh_hash: row.get("refresh_hash"),
         access_expires_at: row.get("access_expires_at"),
         refresh_expires_at: row.get("refresh_expires_at"),
+        consumed_at: row.get("consumed_at"),
     }
 }
 
 #[async_trait]
 impl ClientTokenRepository for PgClientTokenRepository {
     async fn create(&self, t: ClientToken) -> AppResult<()> {
-        let _ = sqlx::query("DELETE FROM client_tokens WHERE refresh_expires_at <= now()")
-            .execute(&self.pool)
-            .await;
+        // Expired rows, plus consumed rows past a 1-day reuse-detection grace.
+        let _ = sqlx::query(
+            "DELETE FROM client_tokens WHERE refresh_expires_at <= now() \
+             OR (consumed_at IS NOT NULL AND consumed_at < now() - interval '1 day')",
+        )
+        .execute(&self.pool)
+        .await;
 
         sqlx::query(
             "INSERT INTO client_tokens (access_hash, client_id, scopes, refresh_hash, \
@@ -247,25 +252,37 @@ impl ClientTokenRepository for PgClientTokenRepository {
         Ok(row.map(row_to_token))
     }
 
-    async fn find_by_refresh_hash(&self, hash: &str) -> AppResult<Option<ClientToken>> {
+    async fn consume_refresh(&self, hash: &str) -> AppResult<RefreshOutcome> {
+        let mut tx = self.pool.begin().await.map_err(map_err)?;
+
         let row = sqlx::query(&format!(
-            "SELECT {TOKEN_COLS} FROM client_tokens \
-             WHERE refresh_hash = $1 AND refresh_expires_at > now()"
+            "SELECT {TOKEN_COLS} FROM client_tokens WHERE refresh_hash = $1 FOR UPDATE"
         ))
         .bind(hash)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_err)?;
-        Ok(row.map(row_to_token))
-    }
 
-    async fn delete_by_refresh_hash(&self, hash: &str) -> AppResult<bool> {
-        let done = sqlx::query("DELETE FROM client_tokens WHERE refresh_hash = $1")
+        let Some(row) = row else {
+            return Ok(RefreshOutcome::Unknown);
+        };
+        let token = row_to_token(row);
+
+        if token.consumed_at.is_some() {
+            return Ok(RefreshOutcome::Reused(token.client_id));
+        }
+        if token.refresh_expires_at <= chrono::Utc::now() {
+            return Ok(RefreshOutcome::Unknown);
+        }
+
+        sqlx::query("UPDATE client_tokens SET consumed_at = now() WHERE refresh_hash = $1")
             .bind(hash)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_err)?;
-        Ok(done.rows_affected() > 0)
+        tx.commit().await.map_err(map_err)?;
+
+        Ok(RefreshOutcome::Fresh(Box::new(token)))
     }
 
     async fn delete_for_client(&self, client_id: Uuid) -> AppResult<()> {

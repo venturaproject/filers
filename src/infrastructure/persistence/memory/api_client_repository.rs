@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use uuid::Uuid;
 
 use crate::domain::api_client::{
-    entities::{ApiClient, ClientToken},
+    entities::{ApiClient, ClientToken, RefreshOutcome},
     repository::{ApiClientRepository, ClientMutation, ClientTokenRepository},
 };
 use crate::errors::{AppError, AppResult};
@@ -90,7 +90,12 @@ impl MemoryClientTokenRepository {
 
     fn prune_expired(&self) {
         let now = Utc::now();
-        self.by_access.retain(|_, t| t.refresh_expires_at > now);
+        // Keep consumed tokens around for a day so a replayed one is still
+        // recognisable as reuse rather than silently "unknown".
+        let grace = chrono::Duration::days(1);
+        self.by_access.retain(|_, t| {
+            t.refresh_expires_at > now && t.consumed_at.is_none_or(|c| now - c < grace)
+        });
     }
 }
 
@@ -118,21 +123,27 @@ impl ClientTokenRepository for MemoryClientTokenRepository {
         Ok(Some(token))
     }
 
-    async fn find_by_refresh_hash(&self, hash: &str) -> AppResult<Option<ClientToken>> {
-        Ok(self
-            .by_access
-            .iter()
-            .find(|t| t.refresh_hash == hash && t.refresh_expires_at > Utc::now())
-            .map(|t| t.clone()))
-    }
-
-    async fn delete_by_refresh_hash(&self, hash: &str) -> AppResult<bool> {
+    async fn consume_refresh(&self, hash: &str) -> AppResult<RefreshOutcome> {
         let key = self
             .by_access
             .iter()
             .find(|t| t.refresh_hash == hash)
             .map(|t| t.key().clone());
-        Ok(key.and_then(|k| self.by_access.remove(&k)).is_some())
+        let Some(key) = key else {
+            return Ok(RefreshOutcome::Unknown);
+        };
+        let Some(mut entry) = self.by_access.get_mut(&key) else {
+            return Ok(RefreshOutcome::Unknown);
+        };
+
+        if entry.consumed_at.is_some() {
+            return Ok(RefreshOutcome::Reused(entry.client_id));
+        }
+        if entry.refresh_expires_at <= Utc::now() {
+            return Ok(RefreshOutcome::Unknown);
+        }
+        entry.consumed_at = Some(Utc::now());
+        Ok(RefreshOutcome::Fresh(Box::new(entry.clone())))
     }
 
     async fn delete_for_client(&self, client_id: Uuid) -> AppResult<()> {

@@ -35,7 +35,13 @@ pub async fn handle(
     let (job_id, file_count) = state
         .processing
         .clone()
-        .start_batch(dir, body.options.unwrap_or_default(), origin, actor)
+        .start_batch(
+            dir,
+            body.options.unwrap_or_default(),
+            origin,
+            actor,
+            principal.owner_key(),
+        )
         .await?;
 
     if let Some(client_id) = principal.client_id() {

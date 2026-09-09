@@ -88,6 +88,10 @@ pub fn build(state: Arc<AppState>) -> Router {
         .layer(DefaultBodyLimit::max(body_limit))
         .layer(middleware::from_fn_with_state(
             state.clone(),
+            security::global_rate_limit,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
             security::headers,
         ))
         .layer(cors)

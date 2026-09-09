@@ -109,6 +109,16 @@ impl TestApp {
         self.send(req).await
     }
 
+    /// GET with an `Authorization: Bearer` header.
+    pub async fn get_bearer(&mut self, path: &str, token: &str) -> Resp {
+        let req = self
+            .base("GET", path)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        self.send(req).await
+    }
+
     pub async fn delete(&mut self, path: &str) -> Resp {
         let req = self.base("DELETE", path).body(Body::empty()).unwrap();
         self.send(req).await

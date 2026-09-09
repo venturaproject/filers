@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        auth::entities::{User, UserStatus},
+        auth::entities::{Role, User, UserStatus},
         processing::entities::JobOrigin,
     },
     errors::AppError,
@@ -46,6 +46,23 @@ impl ApiPrincipal {
             ApiPrincipal::User(u) => (JobOrigin::ApiKey, Some(u.email.clone())),
             ApiPrincipal::Client { name, .. } => (JobOrigin::OauthClient, Some(name.clone())),
         }
+    }
+
+    /// Stable owner key for scoping job reads. `None` for a service key (which
+    /// is trusted and may read any job — see [`ApiPrincipal::is_privileged`]).
+    pub fn owner_key(&self) -> Option<String> {
+        match self {
+            ApiPrincipal::Service => None,
+            ApiPrincipal::User(u) => Some(u.id.to_string()),
+            ApiPrincipal::Client { id, .. } => Some(id.to_string()),
+        }
+    }
+
+    /// May this caller read any job regardless of owner? Service keys (internal)
+    /// and admin users.
+    pub fn is_privileged(&self) -> bool {
+        matches!(self, ApiPrincipal::Service)
+            || matches!(self, ApiPrincipal::User(u) if u.role == Role::Admin)
     }
 }
 

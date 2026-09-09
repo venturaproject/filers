@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::entities::{ApiClient, ClientToken};
+use super::entities::{ApiClient, ClientToken, RefreshOutcome};
 use crate::errors::AppResult;
 
 /// A read-modify-write applied to one client. Runs under the store's per-entry
@@ -26,8 +26,9 @@ pub trait ApiClientRepository: Send + Sync {
 pub trait ClientTokenRepository: Send + Sync {
     async fn create(&self, token: ClientToken) -> AppResult<()>;
     async fn find_by_access_hash(&self, hash: &str) -> AppResult<Option<ClientToken>>;
-    async fn find_by_refresh_hash(&self, hash: &str) -> AppResult<Option<ClientToken>>;
-    async fn delete_by_refresh_hash(&self, hash: &str) -> AppResult<bool>;
-    /// Drop every token belonging to a client (on rotate / revoke).
+    /// Atomically spend a refresh token. Marks it consumed on success; flags a
+    /// second use of an already-consumed token as [`RefreshOutcome::Reused`].
+    async fn consume_refresh(&self, hash: &str) -> AppResult<RefreshOutcome>;
+    /// Drop every token belonging to a client (on rotate / revoke / reuse).
     async fn delete_for_client(&self, client_id: Uuid) -> AppResult<()>;
 }

@@ -39,6 +39,26 @@ pub async fn headers(
     res
 }
 
+/// Per-IP throttle for every `/api` route except the auth endpoints (which have
+/// their own stricter limiter) and `/health`. No-op when `api_limiter` is unset.
+pub async fn global_rate_limit(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    ClientIp(ip): ClientIp,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Result<Response, crate::errors::AppError> {
+    if let Some(limiter) = &state.api_limiter {
+        let path = req.uri().path();
+        let exempt = path == "/health"
+            || path.starts_with("/api/v1/auth/")
+            || path.starts_with("/api/ext/auth/");
+        if !exempt {
+            limiter.check(&format!("req:{ip}"))?;
+        }
+    }
+    Ok(next.run(req).await)
+}
+
 /// The caller's IP. Behind a trusted proxy it is read from
 /// `X-Forwarded-For` / `X-Real-IP`; otherwise from the socket.
 pub struct ClientIp(pub String);

@@ -108,6 +108,7 @@ fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
         config.ext_default_monthly_page_quota,
     ));
     let auth_limiter = RateLimiter::new(config.auth_rate_limit.0, config.auth_rate_limit.1);
+    let api_limiter = config.api_rate_limit.map(|(n, w)| RateLimiter::new(n, w));
 
     Arc::new(AppState {
         config,
@@ -117,6 +118,7 @@ fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
         permissions,
         api_clients,
         auth_limiter,
+        api_limiter,
     })
 }
 
@@ -221,6 +223,8 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         ext_default_monthly_page_quota: None,
         trust_proxy: false,
         auth_rate_limit: (5, 60),
+        // Disabled for the test suite — the whole suite shares one "unknown" IP.
+        api_rate_limit: None,
         seed_demo_users: true,
         production: false,
         database_url: None,

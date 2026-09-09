@@ -149,6 +149,19 @@ pub struct ClientToken {
     pub refresh_hash: String,
     pub access_expires_at: DateTime<Utc>,
     pub refresh_expires_at: DateTime<Utc>,
+    /// Set the first time this refresh token is spent. A second presentation of
+    /// a consumed token is treated as theft (see [`RefreshOutcome`]).
+    pub consumed_at: Option<DateTime<Utc>>,
+}
+
+/// Result of trying to spend a refresh token.
+pub enum RefreshOutcome {
+    /// Valid and unspent — now marked consumed; mint a new pair.
+    Fresh(Box<ClientToken>),
+    /// Already spent once → likely stolen. Revoke every token for this client.
+    Reused(Uuid),
+    /// No such token, or it has expired. Just reject.
+    Unknown,
 }
 
 #[cfg(test)]

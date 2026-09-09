@@ -19,4 +19,7 @@ pub struct AppState {
     pub api_clients: Arc<ApiClientService>,
     /// Per-IP throttle for the authentication endpoints.
     pub auth_limiter: RateLimiter,
+    /// Per-IP throttle for every other `/api` route. `None` disables it
+    /// (`API_RATE_LIMIT=off`) — e.g. when a trusted proxy already limits.
+    pub api_limiter: Option<RateLimiter>,
 }

@@ -104,6 +104,7 @@ pub async fn handle(
             filename,
             origin,
             actor,
+            principal.owner_key(),
             match &outcome {
                 Ok(r) => Ok((r.stats.total_rows, r.stats.columns, r.timings.clone())),
                 Err(e) => Err((e.to_string(), started.elapsed().as_millis())),

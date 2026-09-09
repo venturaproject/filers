@@ -106,10 +106,73 @@ async fn client_credentials_flow() {
         .post_json("/api/ext/auth/refresh", json!({ "refresh_token": refresh }))
         .await;
     assert_eq!(first.status, StatusCode::OK);
+    let rotated_access = first.json["access_token"].as_str().unwrap().to_string();
+    let rotated_refresh = first.json["refresh_token"].as_str().unwrap().to_string();
+
+    // Replaying the spent refresh token is treated as theft: 401 …
     let reused = app
         .post_json("/api/ext/auth/refresh", json!({ "refresh_token": refresh }))
         .await;
     assert_eq!(reused.status, StatusCode::UNAUTHORIZED);
+
+    // … and the whole token family is revoked — the access + refresh that the
+    // legitimate rotation just produced no longer work.
+    assert_eq!(
+        app.get_bearer(
+            "/api/jobs/00000000-0000-0000-0000-000000000000",
+            &rotated_access
+        )
+        .await
+        .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        app.post_json(
+            "/api/ext/auth/refresh",
+            json!({ "refresh_token": rotated_refresh })
+        )
+        .await
+        .status,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn a_client_cannot_read_another_clients_job() {
+    let mut app = TestApp::new();
+    app.login_admin().await;
+    let (_a, a_cid, a_sec) = new_client(&mut app, json!(["*"])).await;
+    let (_b, b_cid, b_sec) = new_client(&mut app, json!(["*"])).await;
+    app.logout_local();
+
+    let a_access = token(&mut app, &a_cid, &a_sec).await.access.unwrap();
+    let b_access = token(&mut app, &b_cid, &b_sec).await.access.unwrap();
+
+    // Client A starts a batch job (the base dir is empty — it just completes).
+    let started = app
+        .json_with(
+            "POST",
+            "/api/process/batch",
+            &[("authorization", &format!("Bearer {a_access}"))],
+            json!({}),
+        )
+        .await;
+    assert_eq!(started.status, StatusCode::OK);
+    let job_id = started.json["job_id"].as_str().unwrap().to_string();
+
+    // A can read its own job; B gets a 404 (not 403 — no existence oracle).
+    assert_eq!(
+        app.get_bearer(&format!("/api/jobs/{job_id}"), &a_access)
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.get_bearer(&format!("/api/jobs/{job_id}"), &b_access)
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
 }
 
 #[tokio::test]
