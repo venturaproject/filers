@@ -1713,6 +1713,7 @@ dependencies = [
  "hmac",
  "http-body-util",
  "libc",
+ "quick-xml",
  "rand 0.8.8",
  "rayon",
  "regex",
@@ -1732,6 +1733,7 @@ dependencies = [
  "utoipa",
  "utoipa-scalar",
  "uuid",
+ "zip 2.4.2",
 ]
 
 [[package]]

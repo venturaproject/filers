@@ -6,6 +6,13 @@ pub struct Config {
     pub port: u16,
     pub api_keys: Vec<String>,
     pub max_file_size_mb: usize,
+    /// Hard ceiling on a spreadsheet's dense cell count (`rows * cols`) before
+    /// the parser will materialise it. `MAX_CELLS`, default 64,000,000.
+    pub max_cells: u64,
+    /// Reject a zip-based upload (xlsx/ods) whose members sum to more than this
+    /// uncompressed — a cheap zip-bomb guard read from the central directory
+    /// before anything is inflated. `MAX_UNCOMPRESSED_MB`, default 1024.
+    pub max_uncompressed_mb: u64,
     pub batch_base_dir: String,
     pub cors_origins: Vec<String>,
     /// Public app name served at `GET /api/v1/config`.
@@ -73,6 +80,16 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(100),
+            max_cells: env::var("MAX_CELLS")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(64_000_000),
+            max_uncompressed_mb: env::var("MAX_UNCOMPRESSED_MB")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(1024),
             batch_base_dir: env::var("BATCH_BASE_DIR").unwrap_or_else(|_| "./uploads".into()),
             cors_origins: env::var("CORS_ALLOWED_ORIGINS")
                 .unwrap_or_else(|_| "*".into())
@@ -308,6 +325,8 @@ mod tests {
             port: 0,
             api_keys: vec!["k1".into(), "k2".into()],
             max_file_size_mb: 10,
+            max_cells: 64_000_000,
+            max_uncompressed_mb: 1024,
             batch_base_dir: dir.into(),
             cors_origins: vec!["*".into()],
             app_name: "T".into(),

@@ -5,18 +5,40 @@ use calamine::{CellType, DataType, Range, Reader, ReaderRef, open_workbook_auto_
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::application::processing::parsers::ParseLimits;
 use crate::application::processing::timing::process_cpu_time;
 use crate::domain::processing::entities::{
     FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile, Timings,
 };
 use crate::errors::{AppError, AppResult};
 
-/// Hard ceiling on the sheet size we will materialise, so a small "zip bomb"
-/// spreadsheet (a few MB that expands to a billion cells) cannot exhaust memory.
-/// ~57x the 1.1M-cell real-world sample.
-const MAX_CELLS: u64 = 64_000_000;
-
+/// Parse with the default limits — convenience for tests and the perf harness.
 pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult<ParsedFile> {
+    parse_with_limits(bytes, format, opts, ParseLimits::default())
+}
+
+pub fn parse_with_limits(
+    bytes: &[u8],
+    format: FileFormat,
+    opts: &ParseOptions,
+    limits: ParseLimits,
+) -> AppResult<ParsedFile> {
+    // xlsx/ods are zip containers — reject a bomb from the central directory
+    // before calamine inflates anything.
+    if matches!(format, FileFormat::Xlsx | FileFormat::Ods) {
+        limits.check_zip(bytes)?;
+    }
+
+    // Fast path: a count-only xlsx parse streams `<row>` elements instead of
+    // building calamine's dense matrix (batch jobs, stats).
+    if opts.count_only && matches!(format, FileFormat::Xlsx) {
+        match super::xlsx_stream::count(bytes, opts) {
+            Ok(parsed) => return Ok(parsed),
+            // Fall through to the reference parser on anything unexpected.
+            Err(e) => tracing::debug!("xlsx stream count fell back to calamine: {e}"),
+        }
+    }
+
     let start = Instant::now();
     let cpu_start = process_cpu_time();
 
@@ -45,7 +67,7 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
                 .worksheet_range_ref(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
             timings.read_ms = t_read.elapsed().as_millis();
-            guard_size(&range)?;
+            guard_size(&range, limits.max_cells)?;
             assemble(&range, format, opts, start, cpu_start, timings)
         }
         // `xls` / `ods` only expose the owned `Range<Data>` path.
@@ -54,24 +76,24 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
                 .worksheet_range(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
             timings.read_ms = t_read.elapsed().as_millis();
-            guard_size(&range)?;
+            guard_size(&range, limits.max_cells)?;
             assemble(&range, format, opts, start, cpu_start, timings)
         }
     }
 }
 
-/// Reject a sheet whose dense cell count is over [`MAX_CELLS`], before we build
+/// Reject a sheet whose dense cell count is over `max_cells`, before we build
 /// a second copy of it as JSON values or a multi-hundred-MB response.
 ///
 /// calamine has already materialised the sheet at this point (no streaming
 /// API), so this bounds the blast radius rather than preventing the first
 /// allocation.
-fn guard_size<D: CellType>(range: &Range<D>) -> AppResult<()> {
+fn guard_size<D: CellType>(range: &Range<D>, max_cells: u64) -> AppResult<()> {
     let (height, width) = range.get_size();
     let cells = (height as u64).saturating_mul(width as u64);
-    if cells > MAX_CELLS {
+    if cells > max_cells {
         return Err(AppError::BadRequest(format!(
-            "sheet has {cells} cells ({height}x{width}); the limit is {MAX_CELLS}"
+            "sheet has {cells} cells ({height}x{width}); the limit is {max_cells}"
         )));
     }
     Ok(())
@@ -286,5 +308,37 @@ mod tests {
         o.sheet = 9;
         let err = parse(&fixture(), FileFormat::Xlsx, &o).unwrap_err();
         assert!(err.to_string().to_lowercase().contains("sheet"));
+    }
+
+    #[test]
+    fn zip_guard_rejects_oversized_uncompressed() {
+        let limits = ParseLimits {
+            max_cells: u64::MAX,
+            max_uncompressed_bytes: 1024, // 1 KiB — the fixture blows past this
+        };
+        let err = parse_with_limits(
+            &fixture(),
+            FileFormat::Xlsx,
+            &ParseOptions::default(),
+            limits,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("uncompressed"));
+    }
+
+    #[test]
+    fn cell_cap_rejects_large_sheet() {
+        let limits = ParseLimits {
+            max_cells: 4,
+            max_uncompressed_bytes: u64::MAX,
+        };
+        let err = parse_with_limits(
+            &fixture(),
+            FileFormat::Xlsx,
+            &ParseOptions::default(),
+            limits,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("the limit is 4"));
     }
 }

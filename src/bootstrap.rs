@@ -124,7 +124,16 @@ fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
         config.webhook_secret.clone(),
     );
     let results_base = std::path::Path::new(&config.batch_base_dir).join("_results");
-    let processing = Arc::new(ProcessingService::build(jobs, notifier, Some(results_base)));
+    let limits = crate::application::processing::parsers::ParseLimits::from_mb(
+        config.max_cells,
+        config.max_uncompressed_mb,
+    );
+    let processing = Arc::new(ProcessingService::build(
+        jobs,
+        notifier,
+        Some(results_base),
+        limits,
+    ));
 
     let auth = Arc::new(AuthService::new(stores.users, stores.sessions));
     let api_clients = Arc::new(ApiClientService::new(
@@ -238,6 +247,8 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         port: 0,
         api_keys: vec!["test-key".to_string()],
         max_file_size_mb: 5,
+        max_cells: 64_000_000,
+        max_uncompressed_mb: 1024,
         batch_base_dir: batch_base_dir.into(),
         cors_origins: vec!["*".to_string()],
         app_name: "Filers Test".to_string(),

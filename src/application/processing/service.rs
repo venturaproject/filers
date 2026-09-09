@@ -17,7 +17,7 @@ use crate::errors::{AppError, AppResult};
 
 use super::notifier::Notifier;
 use super::operations::{convert, transform};
-use super::parsers;
+use super::parsers::{self, ParseLimits};
 
 pub struct ProcessingService {
     pub jobs: Arc<dyn JobRepository>,
@@ -28,17 +28,20 @@ pub struct ProcessingService {
     /// `<BATCH_BASE_DIR>/_results` — where batch jobs with an `output` spec write
     /// their generated files. `None` disables batch result storage.
     results_base: Option<PathBuf>,
+    /// Operator-tunable ceilings applied before a spreadsheet is materialised.
+    limits: ParseLimits,
 }
 
 impl ProcessingService {
     pub fn new(jobs: Arc<dyn JobRepository>) -> Self {
-        Self::build(jobs, Notifier::disabled(), None)
+        Self::build(jobs, Notifier::disabled(), None, ParseLimits::default())
     }
 
     pub fn build(
         jobs: Arc<dyn JobRepository>,
         notifier: Notifier,
         results_base: Option<PathBuf>,
+        limits: ParseLimits,
     ) -> Self {
         let permits = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -48,6 +51,7 @@ impl ProcessingService {
             parse_semaphore: Semaphore::new(permits),
             notifier,
             results_base,
+            limits,
         }
     }
 
@@ -97,7 +101,7 @@ impl ProcessingService {
         match &format {
             FileFormat::Csv => parsers::csv::parse(bytes, opts),
             FileFormat::Xlsx | FileFormat::Xls | FileFormat::Ods => {
-                parsers::excel::parse(bytes, format, opts)
+                parsers::excel::parse_with_limits(bytes, format, opts, self.limits)
             }
         }
     }

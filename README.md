@@ -65,7 +65,10 @@ the response, offloading the heavy lifting to Rust.
 - xlsx read via calamine's borrowed-range API (shared strings not cloned)
 - cell → JSON conversion parallelised with rayon
 - batch files fanned out across cores, bounded by a semaphore
-- `count_only` fast path for batch (stores stats, never materialises cells)
+- `count_only` parses (batch stats) **stream** `<row>` events with quick-xml —
+  the dense matrix is never built; only the header row is decoded
+- CSV streams natively; a zip-bomb guard (`MAX_UNCOMPRESSED_MB`) and a cell cap
+  (`MAX_CELLS`) reject pathological files before anything is materialised
 
 ---
 
@@ -135,6 +138,8 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `APP_ENV` | – | `production` makes the config checks below **fatal** instead of warnings |
 | `API_KEYS` | `change-me-in-production` | comma-separated service keys (`x-api-key`); empty disables them |
 | `MAX_FILE_SIZE_MB` | `100` | upload cap (keep in sync with nginx `client_max_body_size`) |
+| `MAX_CELLS` | `64000000` | reject a sheet whose `rows * cols` exceeds this before materialising it |
+| `MAX_UNCOMPRESSED_MB` | `1024` | reject an xlsx/ods whose zip members sum to more than this uncompressed (zip-bomb guard) |
 | `BATCH_BASE_DIR` | `./uploads` | root for `POST /api/process/batch`; `..` and absolute paths rejected |
 | `DATABASE_URL` | derived from `POSTGRES_*` | Postgres for users/sessions/API-clients/tokens/**jobs**. Unset *and* no bundled Postgres → in-memory (lost on restart) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `filers` / `filers` / `filers` | credentials for the bundled Postgres (both compose files); ignored when `DATABASE_URL` is external. **Change the password for real deployments** |
@@ -416,7 +421,8 @@ instance instead.
 - Suspended / inactive users are locked out and their sessions dropped on
   status/password/role change
 - Upload hardening: streaming size guard, `DefaultBodyLimit`, magic-byte sniff
-  before the parser, cell cap (64M), batch file cap (500)
+  before the parser, configurable cell cap (`MAX_CELLS`), zip-bomb guard
+  (`MAX_UNCOMPRESSED_MB`, read from the central directory), batch file cap (500)
 - Batch path-traversal guard (`..` / absolute paths rejected, `Component::Normal`
   only)
 - Job reads scoped to the creator (404, no existence oracle)
