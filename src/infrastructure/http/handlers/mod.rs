@@ -8,5 +8,7 @@ pub mod jobs_admin;
 pub mod meta;
 pub mod permissions;
 pub mod process;
+pub mod process_common;
+pub mod process_ops;
 pub mod roles;
 pub mod users;

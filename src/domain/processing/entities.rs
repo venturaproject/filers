@@ -221,6 +221,8 @@ pub struct Job {
     /// `None` for a service key. Used to scope `GET /api/jobs/:id`; not exposed.
     #[serde(skip)]
     pub owner: Option<String>,
+    /// Which operation ran: `parse` | `profile` | `validate` | `convert` | `batch`.
+    pub operation: String,
     /// Human label — first file name, or "N archivos".
     pub label: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -236,6 +238,7 @@ impl Job {
     pub fn new(
         files_total: usize,
         kind: JobKind,
+        operation: &str,
         origin: JobOrigin,
         actor: Option<String>,
         owner: Option<String>,
@@ -247,6 +250,7 @@ impl Job {
             origin,
             actor,
             owner,
+            operation: operation.to_string(),
             label: None,
             created_at: Utc::now(),
             completed_at: None,
@@ -258,15 +262,17 @@ impl Job {
         }
     }
 
-    /// A finished record for one synchronous `POST /api/process` call.
+    /// A finished record for one synchronous processing call
+    /// (`parse` / `profile` / `validate` / `convert`).
     pub fn sync_record(
         filename: String,
+        operation: &str,
         origin: JobOrigin,
         actor: Option<String>,
         owner: Option<String>,
         outcome: Result<(u64, u32, Timings), (String, u128)>,
     ) -> Self {
-        let mut job = Job::new(1, JobKind::Sync, origin, actor, owner);
+        let mut job = Job::new(1, JobKind::Sync, operation, origin, actor, owner);
         job.label = Some(filename.clone());
         let now = Utc::now();
         job.completed_at = Some(now);
@@ -325,6 +331,7 @@ impl Job {
             "id": self.id,
             "status": self.status,
             "kind": self.kind.as_str(),
+            "operation": self.operation,
             "origin": self.origin.as_str(),
             "actor": self.actor,
             "label": self.label,

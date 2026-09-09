@@ -100,7 +100,7 @@ impl ProcessingService {
         let entries = collect_files(&dir).await?;
         let file_count = entries.len();
 
-        let mut job = Job::new(entries.len(), JobKind::Batch, origin, actor, owner);
+        let mut job = Job::new(entries.len(), JobKind::Batch, "batch", origin, actor, owner);
         let job_id = job.id;
 
         job.status = JobStatus::Pending;

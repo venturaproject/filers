@@ -24,8 +24,15 @@ pub struct TestApp {
 pub struct Resp {
     pub status: StatusCode,
     pub json: Value,
+    pub body: Vec<u8>,
     pub set_cookie: Option<String>,
     pub headers: axum::http::HeaderMap,
+}
+
+impl Resp {
+    pub fn text(&self) -> std::borrow::Cow<'_, str> {
+        String::from_utf8_lossy(&self.body)
+    }
 }
 
 impl Resp {
@@ -91,6 +98,7 @@ impl TestApp {
         Resp {
             status,
             json,
+            body: bytes.to_vec(),
             set_cookie,
             headers,
         }
@@ -217,6 +225,17 @@ impl TestApp {
             &[(field, filename, content_type, bytes)],
         )
         .await
+    }
+
+    /// Multi-part multipart upload with an `x-api-key` header.
+    pub async fn post_files_key(
+        &mut self,
+        path: &str,
+        key: &str,
+        parts: &[(&str, &str, &str, &[u8])],
+    ) -> Resp {
+        self.multipart(path, &[("x-api-key", key.to_string())], parts)
+            .await
     }
 
     async fn multipart(
