@@ -390,7 +390,12 @@ to force it on (allowed in production, but the startup log warns).
 | --- | --- | --- |
 | users, sessions, API clients, client tokens | in-memory (lost on restart) | **Postgres** |
 | job / processing history | in-memory (cap 512, oldest evicted) | **Postgres** (30-day retention) |
-| roles & permissions | in-memory | in-memory (static seeded catalogue) |
+| roles & permissions | in-memory (seeded catalogue) | **Postgres** (seeded on first run, then editable and durable) |
+
+The RBAC catalogue (`resource.action` permissions + the `admin` / `user` roles)
+is seeded on first connect when the tables are empty, then persists — so edits
+through `/api/v1/roles` and `/api/v1/permissions` survive a restart. The `admin`
+role cannot be deleted.
 
 Migrations in `migrations/` run automatically on connect (`sqlx::migrate!`).
 Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:17-alpine` and

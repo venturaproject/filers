@@ -24,39 +24,21 @@ impl MemoryPermissionRepository {
     /// `name -> id` list so roles can be seeded against it.
     pub fn seeded() -> Self {
         let store = DashMap::new();
-        let mut id = 0u32;
         let now = Utc::now();
+        let mut id = 0u32;
 
-        let catalogue = [
-            ("users", ["view", "create", "update", "delete"].as_slice()),
-            ("roles", ["view", "create", "update", "delete"].as_slice()),
-            (
-                "permissions",
-                ["view", "create", "update", "delete"].as_slice(),
-            ),
-            (
-                "api_clients",
-                ["view", "create", "update", "delete"].as_slice(),
-            ),
-            ("files", ["process", "batch"].as_slice()),
-            ("jobs", ["view"].as_slice()),
-            ("settings", ["view", "update"].as_slice()),
-        ];
-
-        for (resource, actions) in catalogue {
-            for action in actions {
-                id += 1;
-                store.insert(
+        for name in crate::domain::rbac::catalogue_names() {
+            id += 1;
+            store.insert(
+                id,
+                Permission {
                     id,
-                    Permission {
-                        id,
-                        name: format!("{resource}.{action}"),
-                        guard_name: "api".into(),
-                        description: None,
-                        created_at: now,
-                    },
-                );
-            }
+                    name,
+                    guard_name: "api".into(),
+                    description: None,
+                    created_at: now,
+                },
+            );
         }
 
         Self {

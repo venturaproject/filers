@@ -23,6 +23,10 @@ use crate::{
             repository::{SessionRepository, UserRepository},
         },
         processing::repository::JobRepository,
+        rbac::{
+            self,
+            repository::{PermissionRepository, RoleRepository},
+        },
     },
     infrastructure::{
         http::{ratelimit::RateLimiter, router},
@@ -47,11 +51,23 @@ struct Stores {
     clients: Arc<dyn ApiClientRepository>,
     tokens: Arc<dyn ClientTokenRepository>,
     jobs: Arc<dyn JobRepository>,
+    roles: Arc<dyn RoleRepository>,
+    permissions: Arc<dyn PermissionRepository>,
+}
+
+/// Build the seeded in-memory RBAC catalogue (roles reference permissions by id).
+fn memory_rbac() -> (Arc<dyn RoleRepository>, Arc<dyn PermissionRepository>) {
+    let permissions = MemoryPermissionRepository::seeded();
+    let user_perm_ids = permissions.ids_by_names(rbac::USER_ROLE_PERMISSIONS);
+    let admin_perm_ids = permissions.all_ids();
+    let roles = Arc::new(MemoryRoleRepository::seeded(admin_perm_ids, user_perm_ids));
+    (roles, Arc::new(permissions))
 }
 
 /// Build the full application state with **in-memory** repositories.
 /// Used by the test suite and as the fallback when `DATABASE_URL` is unset.
 pub fn build_state(config: Config) -> Arc<AppState> {
+    let (roles, permissions) = memory_rbac();
     let stores = Stores {
         users: Arc::new(MemoryUserRepository::new(default_seed_users(
             &config.seed_user,
@@ -61,6 +77,8 @@ pub fn build_state(config: Config) -> Arc<AppState> {
         clients: Arc::new(MemoryApiClientRepository::new()),
         tokens: Arc::new(MemoryClientTokenRepository::new()),
         jobs: Arc::new(MemoryJobRepository::new()),
+        roles,
+        permissions,
     };
     assemble_state(config, stores)
 }
@@ -77,34 +95,36 @@ pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> 
     let users: Arc<dyn UserRepository> = Arc::new(postgres::PgUserRepository::new(pool.clone()));
     seed_users_if_missing(users.as_ref(), &config.seed_user, config.seed_demo_users).await?;
 
+    let roles: Arc<dyn RoleRepository> = Arc::new(postgres::PgRoleRepository::new(pool.clone()));
+    let permissions: Arc<dyn PermissionRepository> =
+        Arc::new(postgres::PgPermissionRepository::new(pool.clone()));
+    postgres::seed_rbac_if_missing(permissions.as_ref(), roles.as_ref()).await?;
+
     let stores = Stores {
         users,
         sessions: Arc::new(postgres::PgSessionRepository::new(pool.clone())),
         clients: Arc::new(postgres::PgApiClientRepository::new(pool.clone())),
         tokens: Arc::new(postgres::PgClientTokenRepository::new(pool.clone())),
         jobs: Arc::new(postgres::PgJobRepository::new(pool)),
+        roles,
+        permissions,
     };
     tracing::info!("persistence: Postgres");
     Ok(assemble_state(config, stores))
 }
 
-/// Everything downstream of the swappable repos: RBAC catalogue (a static seeded
-/// in-memory catalogue), the services, and the auth rate limiter.
+/// Everything downstream of the swappable repos: the services and the auth
+/// rate limiter.
 fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
     let jobs = stores.jobs;
+    let roles = stores.roles;
+    let permissions = stores.permissions;
     let notifier = crate::application::processing::notifier::Notifier::new(
         config.webhook_url.clone(),
         config.webhook_secret.clone(),
     );
     let results_base = std::path::Path::new(&config.batch_base_dir).join("_results");
     let processing = Arc::new(ProcessingService::build(jobs, notifier, Some(results_base)));
-
-    // RBAC catalogue — roles reference the seeded permissions by id.
-    let permissions = MemoryPermissionRepository::seeded();
-    let user_perm_ids = permissions.ids_by_names(&["files.process", "files.batch", "jobs.view"]);
-    let admin_perm_ids = permissions.all_ids();
-    let roles = Arc::new(MemoryRoleRepository::seeded(admin_perm_ids, user_perm_ids));
-    let permissions = Arc::new(permissions);
 
     let auth = Arc::new(AuthService::new(stores.users, stores.sessions));
     let api_clients = Arc::new(ApiClientService::new(
