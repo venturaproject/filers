@@ -35,7 +35,7 @@ export const sidebarData: SidebarData = {
       title: 'Procesamiento',
       items: [
         {
-          title: 'Procesar archivo',
+          title: 'Banco de trabajo',
           url: '/admin/process',
           icon: IconUpload,
           permission: 'files.process',

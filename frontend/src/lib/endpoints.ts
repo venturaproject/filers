@@ -52,7 +52,16 @@ export const endpoints = {
   },
   files: {
     process:   `/api/process`,
+    profile:   `/api/process/profile`,
+    validate:  `/api/process/validate`,
+    convert:   `/api/process/convert`,
+    transform: `/api/process/transform`,
+    diff:      `/api/process/diff`,
+    pipeline:  `/api/process/pipeline`,
+    generateXlsx: `/api/generate/xlsx`,
     jobs:      `${API_BASE}/jobs`,
     jobDetail: (id: string) => `${API_BASE}/jobs/${id}`,
+    jobResults:     (id: string) => `/api/jobs/${id}/results`,
+    jobResultFile:  (id: string, name: string) => `/api/jobs/${id}/results/${encodeURIComponent(name)}`,
   },
 }
