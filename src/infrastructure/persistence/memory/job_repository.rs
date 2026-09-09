@@ -82,4 +82,23 @@ impl JobRepository for MemoryJobRepository {
             .clone_from(&job);
         Ok(())
     }
+
+    async fn prune_terminal(&self, cutoff: DateTime<Utc>, dry_run: bool) -> AppResult<u64> {
+        let stale: Vec<Uuid> = self
+            .store
+            .iter()
+            .filter(|e| {
+                matches!(e.status, JobStatus::Completed | JobStatus::Failed)
+                    && e.created_at < cutoff
+            })
+            .map(|e| e.id)
+            .collect();
+        let n = stale.len() as u64;
+        if !dry_run {
+            for id in stale {
+                self.store.remove(&id);
+            }
+        }
+        Ok(n)
+    }
 }

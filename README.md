@@ -452,11 +452,35 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
   'cd /app && pnpm exec oxlint src && pnpm exec tsc --noEmit && pnpm build'
 ```
 
-**Tests:** 70 (unit + integration), driven through the router with
+**Tests:** 74 (unit + integration), driven through the router with
 `tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
 fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
 (`cargo test --release --test perf -- --ignored --nocapture`, reads a root
 `input.xlsx` if present).
+
+---
+
+## Maintenance CLI
+
+The `server` binary is also a CLI. With no subcommand it runs the HTTP server
+(the default); the subcommands are one-shot tasks.
+
+```bash
+server                                  # run the HTTP server
+server check                            # print effective config + run startup checks
+server jobs prune --days 7              # delete completed/failed jobs older than 7 days
+server jobs prune --days 30 --dry-run   # list what would be deleted, delete nothing
+```
+
+`jobs prune` keeps running jobs and needs `DATABASE_URL` (the in-memory history
+resets on restart anyway). Schedule it from cron for durable retention:
+
+```cron
+# 03:15 daily — trim job history to 14 days
+15 3 * * *  docker compose -f /srv/filers/compose.prod.yml run --rm --no-deps api jobs prune --days 14
+```
+
+In dev: `make prune DAYS=14` (add `DRY=1` to preview), `make check-config`.
 
 ---
 

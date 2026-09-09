@@ -60,6 +60,12 @@ tsc: ## TypeScript check (frontend)
 lint: ## ESLint (frontend)
 	$(DC) exec $(FE) pnpm lint
 
+prune: ## Delete completed/failed jobs older than DAYS=7 (add DRY=1 to preview)
+	$(DC) exec $(SVC) cargo run --quiet --bin server -- jobs prune --days $(or $(DAYS),7) $(if $(DRY),--dry-run,)
+
+check-config: ## Print the effective config + run the startup checks
+	$(DC) exec $(SVC) cargo run --quiet --bin server -- check
+
 logs: ## Tail API logs
 	$(DC) logs -f $(SVC)
 

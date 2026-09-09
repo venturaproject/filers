@@ -113,6 +113,40 @@ impl JobRepository for PgJobRepository {
             .await
             .map_err(map_err)?;
 
-        rows.iter().map(row_to_job).collect()
+        // A single unreadable row (hand-edited DB, botched migration) must not
+        // take down the whole listing — skip it with a warning.
+        Ok(rows
+            .iter()
+            .filter_map(|row| match row_to_job(row) {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    tracing::warn!("skipping unreadable job row: {e}");
+                    None
+                }
+            })
+            .collect())
+    }
+
+    async fn prune_terminal(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+        dry_run: bool,
+    ) -> AppResult<u64> {
+        const WHERE: &str = "status IN ('completed', 'failed') AND created_at < $1";
+        if dry_run {
+            let row = sqlx::query(&format!("SELECT count(*) AS n FROM jobs WHERE {WHERE}"))
+                .bind(cutoff)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(map_err)?;
+            Ok(row.get::<i64, _>("n").max(0) as u64)
+        } else {
+            let res = sqlx::query(&format!("DELETE FROM jobs WHERE {WHERE}"))
+                .bind(cutoff)
+                .execute(&self.pool)
+                .await
+                .map_err(map_err)?;
+            Ok(res.rows_affected())
+        }
     }
 }
