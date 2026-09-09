@@ -1,13 +1,16 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::Utc;
 use serde::Deserialize;
 use tokio::fs;
+use tokio::sync::Semaphore;
 
 use crate::domain::processing::{
-    entities::{FileFormat, FileResult, Job, JobStatus, ParseOptions, ParsedFile},
+    entities::{
+        FileFormat, FileResult, Job, JobKind, JobOrigin, JobStatus, ParseOptions, ParsedFile,
+    },
     repository::JobRepository,
 };
 use crate::errors::{AppError, AppResult};
@@ -16,15 +19,51 @@ use super::parsers;
 
 pub struct ProcessingService {
     pub jobs: Arc<dyn JobRepository>,
+    /// Bounds how many CPU-bound parses run at once (uploads + batch combined),
+    /// so a burst of large files cannot exhaust the blocking thread pool.
+    parse_semaphore: Semaphore,
 }
 
 impl ProcessingService {
     pub fn new(jobs: Arc<dyn JobRepository>) -> Self {
-        Self { jobs }
+        let permits = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        Self {
+            jobs,
+            parse_semaphore: Semaphore::new(permits),
+        }
+    }
+
+    /// Parse an uploaded file off the async runtime.
+    ///
+    /// Acquires a parse permit, then runs the (blocking) parser on a dedicated
+    /// thread so it never stalls the Tokio worker threads.
+    pub async fn parse_upload(
+        self: &Arc<Self>,
+        filename: String,
+        bytes: Vec<u8>,
+        opts: ParseOptions,
+    ) -> AppResult<ParsedFile> {
+        let _permit = self
+            .parse_semaphore
+            .acquire()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+        let me = Arc::clone(self);
+        tokio::task::spawn_blocking(move || me.parse_bytes(&filename, &bytes, &opts))
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?
     }
 
     /// Parse a file from raw bytes. Detects format from the filename extension.
-    pub fn parse_bytes(&self, filename: &str, bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
+    pub fn parse_bytes(
+        &self,
+        filename: &str,
+        bytes: &[u8],
+        opts: &ParseOptions,
+    ) -> AppResult<ParsedFile> {
         let ext = Path::new(filename)
             .extension()
             .and_then(|e| e.to_str())
@@ -42,21 +81,34 @@ impl ProcessingService {
     }
 
     /// Spawn a batch job that processes all Excel/CSV files in a directory.
+    ///
+    /// `dir` must already have been validated (see [`crate::config::Config::resolve_batch_dir`]).
     pub async fn start_batch(
         self: Arc<Self>,
-        request: BatchRequest,
-    ) -> AppResult<uuid::Uuid> {
-        let dir = request.path.as_deref().unwrap_or(".");
-        let entries = collect_files(dir).await?;
+        dir: PathBuf,
+        options: ParseOptions,
+        origin: JobOrigin,
+        actor: Option<String>,
+    ) -> AppResult<(uuid::Uuid, usize)> {
+        let entries = collect_files(&dir).await?;
+        let file_count = entries.len();
 
-        let mut job = Job::new(entries.len());
+        let mut job = Job::new(entries.len(), JobKind::Batch, origin, actor);
         let job_id = job.id;
 
         job.status = JobStatus::Pending;
+        job.label = match entries.as_slice() {
+            [] => None,
+            [one] => one.file_name().and_then(|n| n.to_str()).map(str::to_string),
+            many => Some(format!("{} archivos", many.len())),
+        };
         self.jobs.create(job).await?;
 
         let svc = self.clone();
-        let opts = request.options.unwrap_or_default();
+        let mut opts = options;
+        // Batch only stores per-file stats — never the cells — so let the parser
+        // skip building the `Vec<Vec<Value>>` altogether.
+        opts.count_only = true;
 
         tokio::spawn(async move {
             // mark running
@@ -65,53 +117,69 @@ impl ProcessingService {
                 let _ = svc.jobs.update(j).await;
             }
 
-            let mut results: Vec<FileResult> = Vec::new();
-            let mut failed = 0usize;
+            // Fan every file out at once. `parse_upload` holds a semaphore sized
+            // to the CPU count, so this self-bounds instead of stalling one file
+            // behind another.
+            let mut tasks: tokio::task::JoinSet<(usize, FileResult)> = tokio::task::JoinSet::new();
+            for (idx, path) in entries.iter().cloned().enumerate() {
+                let svc = svc.clone();
+                let opts = opts.clone();
+                tasks.spawn(async move {
+                    let file_name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
 
-            for path in &entries {
-                let file_name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
+                    let t = Instant::now();
+                    let outcome = match fs::read(&path).await {
+                        Ok(bytes) => svc.parse_upload(file_name.clone(), bytes, opts).await,
+                        Err(e) => Err(AppError::Internal(anyhow::anyhow!(e))),
+                    };
 
-                let t = Instant::now();
-
-                let outcome = fs::read(path)
-                    .await
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
-                    .and_then(|bytes| svc.parse_bytes(&file_name, &bytes, &opts));
-
-                match outcome {
-                    Ok(parsed) => results.push(FileResult {
-                        file: file_name,
-                        rows: parsed.stats.total_rows,
-                        columns: parsed.stats.columns,
-                        elapsed_ms: t.elapsed().as_millis(),
-                        status: "ok".into(),
-                        error: None,
-                    }),
-                    Err(e) => {
-                        failed += 1;
-                        results.push(FileResult {
+                    let result = match outcome {
+                        Ok(parsed) => FileResult {
+                            file: file_name,
+                            rows: parsed.stats.total_rows,
+                            columns: parsed.stats.columns,
+                            elapsed_ms: t.elapsed().as_millis(),
+                            status: "ok".into(),
+                            error: None,
+                        },
+                        Err(e) => FileResult {
                             file: file_name,
                             rows: 0,
                             columns: 0,
                             elapsed_ms: t.elapsed().as_millis(),
                             status: "error".into(),
                             error: Some(e.to_string()),
-                        });
-                    }
-                }
+                        },
+                    };
+                    (idx, result)
+                });
+            }
 
-                // update progress after each file
+            let mut slots: Vec<Option<FileResult>> = (0..entries.len()).map(|_| None).collect();
+            let mut done = 0usize;
+
+            while let Some(joined) = tasks.join_next().await {
+                let Ok((idx, result)) = joined else { continue };
+                slots[idx] = Some(result);
+                done += 1;
+
+                // publish progress as files land
+                let finished: Vec<FileResult> = slots.iter().flatten().cloned().collect();
+                let failed = finished.iter().filter(|r| r.status == "error").count();
                 if let Ok(Some(mut j)) = svc.jobs.find(job_id).await {
-                    j.files_processed = results.len() - failed;
+                    j.files_processed = done - failed;
                     j.files_failed = failed;
-                    j.results = results.clone();
+                    j.results = finished;
                     let _ = svc.jobs.update(j).await;
                 }
             }
+
+            let results: Vec<FileResult> = slots.into_iter().flatten().collect();
+            let failed = results.iter().filter(|r| r.status == "error").count();
 
             if let Ok(Some(mut j)) = svc.jobs.find(job_id).await {
                 j.status = if failed == entries.len() && !entries.is_empty() {
@@ -127,21 +195,21 @@ impl ProcessingService {
             }
         });
 
-        Ok(job_id)
+        Ok((job_id, file_count))
     }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct BatchRequest {
-    /// Directory path to scan. Defaults to BATCH_BASE_DIR env var.
+    /// Sub-directory to scan, relative to BATCH_BASE_DIR. `None` = the base dir.
     pub path: Option<String>,
     pub options: Option<ParseOptions>,
 }
 
-async fn collect_files(dir: &str) -> AppResult<Vec<std::path::PathBuf>> {
-    let mut entries = fs::read_dir(dir)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Cannot read directory '{dir}': {e}")))?;
+async fn collect_files(dir: &Path) -> AppResult<Vec<PathBuf>> {
+    let mut entries = fs::read_dir(dir).await.map_err(|e| {
+        AppError::BadRequest(format!("Cannot read directory '{}': {e}", dir.display()))
+    })?;
 
     let mut paths = Vec::new();
     while let Ok(Some(entry)) = entries.next_entry().await {

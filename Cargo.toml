@@ -36,6 +36,11 @@ csv      = "1"
 bytes    = "1"
 tempfile = "3"
 
+argon2 = "0.5"
+rand   = "0.8"
+sha2   = "0.10"
+base64 = "0.22"
+
 [lints.clippy]
 dbg_macro   = "warn"
 todo        = "warn"

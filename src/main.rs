@@ -1,14 +1,6 @@
-use std::sync::Arc;
+use std::net::SocketAddr;
 
-use rust_api::{
-    application::processing::service::ProcessingService,
-    config::Config,
-    infrastructure::{
-        http::router,
-        persistence::memory::job_repository::MemoryJobRepository,
-    },
-    state::AppState,
-};
+use rust_api::{bootstrap, config::Config};
 
 #[tokio::main]
 async fn main() {
@@ -24,16 +16,20 @@ async fn main() {
     let config = Config::from_env();
     let port = config.port;
 
-    let jobs = Arc::new(MemoryJobRepository::new());
-    let processing = Arc::new(ProcessingService::new(jobs));
+    tracing::info!(email = %config.seed_user.email, "seeded admin user");
+    tracing::debug!(api_key = %config.seed_user.api_key, "seeded admin api key");
 
-    let state = Arc::new(AppState { config, processing });
-    let app = router::build(state);
+    let app = bootstrap::build_app(config);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
         .expect("bind");
 
     tracing::info!("Listening on port {port}");
-    axum::serve(listener, app).await.expect("serve");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("serve");
 }

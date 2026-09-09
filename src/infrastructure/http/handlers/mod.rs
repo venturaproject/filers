@@ -1,3 +1,12 @@
+pub mod api_clients;
+pub mod auth;
 pub mod batch;
+pub mod dashboard;
+pub mod ext_auth;
 pub mod jobs;
+pub mod jobs_admin;
+pub mod meta;
+pub mod permissions;
 pub mod process;
+pub mod roles;
+pub mod users;
