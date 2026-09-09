@@ -1,6 +1,7 @@
 import {
   IconChecklist,
   IconGitCompare,
+  IconRoute,
   IconLayoutDashboard,
   IconSettings,
   IconUserCog,
@@ -45,6 +46,12 @@ export const sidebarData: SidebarData = {
           title: 'Comparar',
           url: '/admin/compare',
           icon: IconGitCompare,
+          permission: 'files.process',
+        },
+        {
+          title: 'Pipeline',
+          url: '/admin/pipeline',
+          icon: IconRoute,
           permission: 'files.process',
         },
         {

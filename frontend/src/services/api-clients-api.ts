@@ -38,8 +38,8 @@ export interface CreateApiClientResponse {
 }
 
 export const AVAILABLE_SCOPES = [
-  { value: 'files:write', label: 'Procesar archivos (POST /api/process)' },
-  { value: 'files:read',  label: 'Consultar trabajos (GET /api/jobs)' },
+  { value: 'files:write', label: 'Procesar / transformar / convertir / pipelines / batch' },
+  { value: 'files:read',  label: 'Perfilar / validar / comparar / consultar trabajos' },
   { value: '*',           label: 'Acceso completo (*)' },
 ]
 

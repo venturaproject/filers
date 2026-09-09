@@ -2,6 +2,7 @@ import {
   IconBrowserCheck,
   IconChecklist,
   IconGitCompare,
+  IconRoute,
   IconLayoutDashboard,
   IconNotification,
   IconPalette,
@@ -49,6 +50,12 @@ export const DynamicSidebarData = () => {
             title: 'Comparar',
             url: '/admin/compare',
             icon: IconGitCompare,
+            permission: 'files.process',
+          },
+          {
+            title: 'Pipeline',
+            url: '/admin/pipeline',
+            icon: IconRoute,
             permission: 'files.process',
           },
           {
