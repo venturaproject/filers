@@ -440,10 +440,15 @@ make logs        # tail api logs
 
 make test        # cargo test in the container
 make test-local  # cargo test on the host
-make ci          # fmt --check + clippy -D warnings + test
+make ci          # fmt --check + clippy -D warnings + test + audit
 make clippy
 make fmt
+make audit       # cargo audit — RustSec advisory scan (cargo install cargo-audit)
 ```
+
+`cargo audit` is clean. One advisory (`RUSTSEC-2023-0071`, rsa) is ignored in
+`.cargo/audit.toml` with a rationale — `rsa` reaches `Cargo.lock` only through
+`sqlx-mysql`, which is not compiled (sqlx is built `postgres`-only).
 
 Frontend checks (in the container):
 

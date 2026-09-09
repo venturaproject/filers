@@ -106,12 +106,19 @@ pub fn build(state: Arc<AppState>) -> Router {
     // OpenAPI spec + Scalar docs UI. Gated by `ENABLE_API_DOCS`
     // (default: on outside production, off in production).
     let router = if state.config.enable_api_docs {
+        let scalar_html = Scalar::with_url("/api/docs", ApiDoc::openapi()).to_html();
         router
             .route(
                 "/api/openapi.json",
                 get(|| async { axum::Json(ApiDoc::openapi()) }),
             )
-            .merge(Scalar::with_url("/api/docs", ApiDoc::openapi()))
+            .route(
+                "/api/docs",
+                get(move || {
+                    let html = scalar_html.clone();
+                    async move { axum::response::Html(html) }
+                }),
+            )
     } else {
         router
     };

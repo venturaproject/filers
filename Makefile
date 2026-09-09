@@ -49,10 +49,14 @@ test: ## Run the Rust test suite (unit + integration) in the container
 test-local: ## Run the Rust test suite on the host
 	cargo test
 
-ci: ## fmt check + clippy + tests (host)
+audit: ## Scan dependencies for RustSec advisories (needs `cargo install cargo-audit`)
+	cargo audit
+
+ci: ## fmt check + clippy + tests + audit (host)
 	cargo fmt --check
 	cargo clippy --all-targets -- -D warnings
 	cargo test
+	cargo audit
 
 tsc: ## TypeScript check (frontend)
 	$(DC) exec $(FE) pnpm tsc --noEmit

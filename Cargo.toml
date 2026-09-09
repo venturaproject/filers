@@ -41,10 +41,10 @@ sqlx = { version = "0.8", default-features = false, features = [
     "migrate",
 ] }
 
-calamine        = { version = "0.26", features = ["dates"] }
+calamine        = { version = "0.36", features = ["dates"] }
 csv             = "1"
 zip             = { version = "2.4", default-features = false, features = ["deflate"] }
-quick-xml       = "0.31"
+quick-xml       = "0.42"
 regex           = "1"
 rust_xlsxwriter = "0.89"
 reqwest         = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -53,8 +53,8 @@ hmac            = "0.12"
 bytes    = "1"
 tempfile = "3"
 
-utoipa        = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-scalar = { version = "0.1", features = ["axum"] }
+utoipa        = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-scalar = { version = "0.3", features = ["axum"] }
 
 argon2 = "0.5"
 rand   = "0.8"

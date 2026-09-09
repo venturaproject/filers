@@ -6,10 +6,12 @@
 //! be fully materialised. Anything unexpected returns `Err` and the caller
 //! ([`super::excel::parse_with_limits`]) falls back to the reference parser.
 
+use std::borrow::Cow;
 use std::io::{Cursor, Read};
 use std::time::Instant;
 
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 
 use crate::application::processing::operations::convert::col_letter;
@@ -56,13 +58,16 @@ pub fn count(bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
     })
 }
 
-// ── sheet resolution ────────────────────────────────────────────────────────
+// ── helpers ─────────────────────────────────────────────────────────────────
 
-fn attr(e: &BytesStart, key: &[u8]) -> Option<String> {
-    e.attributes()
-        .flatten()
-        .find(|a| a.key.as_ref() == key)
-        .map(|a| String::from_utf8_lossy(&a.value).into_owned())
+/// One attribute's value, owned.
+fn attr(e: &BytesStart, key: &str) -> Option<String> {
+    raw_attr(e, key).map(Cow::into_owned)
+}
+
+/// One attribute's value, borrowed where possible (hot path).
+fn raw_attr<'a>(e: &'a BytesStart, key: &str) -> Option<Cow<'a, str>> {
+    e.try_get_attribute(key).ok().flatten().map(|a| a.value)
 }
 
 fn read_zip_string(zip: &mut Zip, name: &str) -> Result<String, String> {
@@ -73,6 +78,23 @@ fn read_zip_string(zip: &mut Zip, name: &str) -> Result<String, String> {
     Ok(s)
 }
 
+/// Column index from a cell ref like `AB12` → 27 (0-based).
+fn col_from_ref(r: &str) -> Option<usize> {
+    let mut n: usize = 0;
+    let mut any = false;
+    for b in r.bytes() {
+        if b.is_ascii_alphabetic() {
+            any = true;
+            n = n * 26 + (b.to_ascii_uppercase() - b'A' + 1) as usize;
+        } else {
+            break;
+        }
+    }
+    any.then(|| n - 1)
+}
+
+// ── sheet resolution ────────────────────────────────────────────────────────
+
 /// `xl/workbook.xml` lists sheets in order with an `r:id`; the rels file maps
 /// that id to a path. Falls back to the conventional `worksheets/sheetN.xml`.
 fn resolve_sheet_path(zip: &mut Zip, index: usize) -> Result<String, String> {
@@ -81,8 +103,8 @@ fn resolve_sheet_path(zip: &mut Zip, index: usize) -> Result<String, String> {
     let mut rids: Vec<String> = Vec::new();
     loop {
         match r.read_event() {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"sheet" => {
-                if let Some(id) = attr(&e, b"r:id").or_else(|| attr(&e, b"id")) {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().0 == "sheet" => {
+                if let Some(id) = attr(&e, "r:id").or_else(|| attr(&e, "id")) {
                     rids.push(id);
                 }
             }
@@ -101,9 +123,9 @@ fn resolve_sheet_path(zip: &mut Zip, index: usize) -> Result<String, String> {
     let mut rr = Reader::from_str(&rels);
     loop {
         match rr.read_event() {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"Relationship" => {
-                if attr(&e, b"Id").as_deref() == Some(rid.as_str()) {
-                    let target = attr(&e, b"Target").ok_or("relationship has no Target")?;
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().0 == "Relationship" => {
+                if attr(&e, "Id").as_deref() == Some(rid.as_str()) {
+                    let target = attr(&e, "Target").ok_or("relationship has no Target")?;
                     return Ok(normalise_target(&target));
                 }
             }
@@ -141,20 +163,20 @@ fn read_shared_strings(zip: &mut Zip) -> Result<Vec<String>, String> {
 
     loop {
         match r.read_event() {
-            Ok(Event::Start(e)) => match e.name().as_ref() {
-                b"si" => {
+            Ok(Event::Start(e)) => match e.name().0 {
+                "si" => {
                     depth_si += 1;
                     cur.clear();
                 }
-                b"t" if depth_si > 0 => in_t = true,
+                "t" if depth_si > 0 => in_t = true,
                 _ => {}
             },
             Ok(Event::Text(t)) if in_t => {
-                cur.push_str(&t.unescape().unwrap_or_default());
+                cur.push_str(&t.xml_content(XmlVersion::Implicit1_0));
             }
-            Ok(Event::End(e)) => match e.name().as_ref() {
-                b"t" => in_t = false,
-                b"si" if depth_si > 0 => {
+            Ok(Event::End(e)) => match e.name().0 {
+                "t" => in_t = false,
+                "si" if depth_si > 0 => {
                     depth_si -= 1;
                     out.push(std::mem::take(&mut cur));
                 }
@@ -183,7 +205,7 @@ enum CellKind {
 }
 
 fn cell_kind(e: &BytesStart) -> CellKind {
-    match attr(e, b"t").as_deref() {
+    match attr(e, "t").as_deref() {
         Some("s") => CellKind::Shared,
         Some("inlineStr") => CellKind::Inline,
         Some("str") => CellKind::Str,
@@ -191,32 +213,11 @@ fn cell_kind(e: &BytesStart) -> CellKind {
     }
 }
 
-/// Column index from a cell ref like `AB12` → 27 (0-based). Byte-oriented so it
-/// runs on a borrowed attribute value with no allocation.
-fn col_from_ref(r: &[u8]) -> Option<usize> {
-    let mut n: usize = 0;
-    let mut any = false;
-    for &b in r {
-        if b.is_ascii_alphabetic() {
-            any = true;
-            n = n * 26 + (b.to_ascii_uppercase() - b'A' + 1) as usize;
-        } else {
-            break;
-        }
-    }
-    any.then(|| n - 1)
-}
-
-/// Read one attribute's raw value without allocating (borrowed where possible).
-fn raw_attr<'a>(e: &'a BytesStart, key: &[u8]) -> Option<std::borrow::Cow<'a, [u8]>> {
-    e.try_get_attribute(key).ok().flatten().map(|a| a.value)
-}
-
 /// `dimension ref="A1:NK3104"` → column count (NK → 375).
 fn dim_width(e: &BytesStart) -> Option<usize> {
-    let r = attr(e, b"ref")?;
+    let r = attr(e, "ref")?;
     let last = r.split(':').next_back().unwrap_or(r.as_str());
-    col_from_ref(last.as_bytes()).map(|c| c + 1)
+    col_from_ref(last).map(|c| c + 1)
 }
 
 fn resolve_text(kind: &CellKind, raw: &str, shared: &[String]) -> String {
@@ -271,21 +272,18 @@ fn scan_sheet(
 
     loop {
         match r.read_event() {
-            Ok(Event::Empty(e)) if e.name().as_ref() == b"dimension" => {
+            Ok(Event::Empty(e)) | Ok(Event::Start(e)) if e.name().0 == "dimension" => {
                 declared_width = declared_width.or_else(|| dim_width(&e));
             }
-            Ok(Event::Start(e)) if e.name().as_ref() == b"dimension" => {
-                declared_width = declared_width.or_else(|| dim_width(&e));
-            }
-            Ok(Event::Start(e)) if e.name().as_ref() == b"sheetData" => in_sheet_data = true,
-            Ok(Event::End(e)) if e.name().as_ref() == b"sheetData" => break,
+            Ok(Event::Start(e)) if e.name().0 == "sheetData" => in_sheet_data = true,
+            Ok(Event::End(e)) if e.name().0 == "sheetData" => break,
 
-            Ok(Event::Start(e)) if in_sheet_data && e.name().as_ref() == b"row" => {
+            Ok(Event::Start(e)) if in_sheet_data && e.name().0 == "row" => {
                 capturing = opts.has_headers && row_ord == header_ord;
                 header_cells.clear();
                 next_col = 0;
             }
-            Ok(Event::End(e)) if in_sheet_data && e.name().as_ref() == b"row" => {
+            Ok(Event::End(e)) if in_sheet_data && e.name().0 == "row" => {
                 let is_body = if opts.has_headers {
                     row_ord > header_ord
                 } else {
@@ -298,15 +296,15 @@ fn scan_sheet(
                 capturing = false;
             }
 
-            Ok(Event::Empty(e)) if in_sheet_data && e.name().as_ref() == b"c" => {
-                let col = raw_attr(&e, b"r")
+            Ok(Event::Empty(e)) if in_sheet_data && e.name().0 == "c" => {
+                let col = raw_attr(&e, "r")
                     .and_then(|v| col_from_ref(&v))
                     .unwrap_or(next_col);
                 next_col = col + 1;
                 seen_width = seen_width.max(col + 1);
             }
-            Ok(Event::Start(e)) if in_sheet_data && e.name().as_ref() == b"c" => {
-                cell_col = raw_attr(&e, b"r")
+            Ok(Event::Start(e)) if in_sheet_data && e.name().0 == "c" => {
+                cell_col = raw_attr(&e, "r")
                     .and_then(|v| col_from_ref(&v))
                     .unwrap_or(next_col);
                 next_col = cell_col + 1;
@@ -316,16 +314,16 @@ fn scan_sheet(
                     cell_val.clear();
                 }
             }
-            Ok(Event::End(e)) if capturing && in_sheet_data && e.name().as_ref() == b"c" => {
+            Ok(Event::End(e)) if capturing && in_sheet_data && e.name().0 == "c" => {
                 header_cells.push((cell_col, resolve_text(&kind, &cell_val, shared)));
             }
 
-            Ok(Event::Start(e)) if capturing && e.name().as_ref() == b"v" => in_v = true,
-            Ok(Event::End(e)) if e.name().as_ref() == b"v" => in_v = false,
-            Ok(Event::Start(e)) if capturing && e.name().as_ref() == b"t" => in_inline_t = true,
-            Ok(Event::End(e)) if e.name().as_ref() == b"t" => in_inline_t = false,
+            Ok(Event::Start(e)) if capturing && e.name().0 == "v" => in_v = true,
+            Ok(Event::End(e)) if e.name().0 == "v" => in_v = false,
+            Ok(Event::Start(e)) if capturing && e.name().0 == "t" => in_inline_t = true,
+            Ok(Event::End(e)) if e.name().0 == "t" => in_inline_t = false,
             Ok(Event::Text(t)) if in_v || in_inline_t => {
-                cell_val.push_str(&t.unescape().unwrap_or_default());
+                cell_val.push_str(&t.xml_content(XmlVersion::Implicit1_0));
             }
 
             Ok(Event::Eof) => break,
