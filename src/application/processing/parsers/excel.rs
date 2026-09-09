@@ -1,17 +1,19 @@
 use std::io::Cursor;
 use std::time::Instant;
 
-use calamine::{Data, DataType, Reader, open_workbook_auto_from_rs};
+use calamine::{CellType, DataType, Range, Reader, ReaderRef, open_workbook_auto_from_rs};
+use rayon::prelude::*;
 use serde_json::Value;
 
-use crate::domain::processing::entities::{FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile};
+use crate::domain::processing::entities::{
+    FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile,
+};
 use crate::errors::{AppError, AppResult};
 
 pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult<ParsedFile> {
     let start = Instant::now();
-    let cursor = Cursor::new(bytes);
 
-    let mut workbook = open_workbook_auto_from_rs(cursor)
+    let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes))
         .map_err(|e| AppError::ParseError(format!("Cannot open workbook: {e}")))?;
 
     let sheet_names = workbook.sheet_names().to_owned();
@@ -20,95 +22,165 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
         .ok_or_else(|| AppError::BadRequest(format!("Sheet {} not found", opts.sheet)))?
         .clone();
 
-    let range = workbook
-        .worksheet_range(&sheet_name)
-        .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
-
-    let mut rows = range.rows();
-
-    // skip leading rows
-    for _ in 0..opts.skip_rows {
-        rows.next();
+    // `xlsx`/`xlsb` expose a borrowed `Range<DataRef>` — cells point straight at
+    // the shared-string table instead of `worksheet_range` cloning all 1M+ of
+    // them into owned `String`s first. `xls`/`ods` only have the owned path.
+    match format {
+        FileFormat::Xlsx => {
+            let range = workbook
+                .worksheet_range_ref(&sheet_name)
+                .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
+            Ok(assemble(&range, format, opts, start))
+        }
+        // `xls` / `ods` only expose the owned `Range<Data>` path.
+        _ => {
+            let range = workbook
+                .worksheet_range(&sheet_name)
+                .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
+            Ok(assemble(&range, format, opts, start))
+        }
     }
+}
 
-    // headers
+/// Shared row-processing over either `Range<Data>` (owned) or `Range<DataRef>`
+/// (borrowed) — the only difference the caller sees is which one it hands in.
+fn assemble<D: CellType + DataType + Sync>(
+    range: &Range<D>,
+    format: FileFormat,
+    opts: &ParseOptions,
+    start: Instant,
+) -> ParsedFile {
+    let width = range.width();
+    let all_rows: Vec<&[D]> = range.rows().collect();
+
+    // Advance past the skipped leading rows.
+    let mut idx = opts.skip_rows.min(all_rows.len());
+
+    // Header row (or synthetic A/B/C… names).
     let columns: Vec<String> = if opts.has_headers {
-        match rows.next() {
-            Some(row) => row.iter().map(cell_to_header).collect(),
-            None => return Ok(empty_result(format, start)),
+        match all_rows.get(idx) {
+            Some(row) => {
+                idx += 1;
+                row.iter().map(cell_to_header).collect()
+            }
+            None => return empty_result(format, start),
         }
     } else {
-        (0..range.width()).map(col_letter).collect()
+        (0..width).map(col_letter).collect()
+    };
+    let column_count = columns.len() as u32;
+
+    // Rows consumed before the body — used to reconstruct 1-based row numbers.
+    let header_offset = idx as u64;
+    let body = &all_rows[idx..];
+    let total_rows = body.len() as u64;
+
+    // Batch jobs only keep the stats, so skip building `data` entirely.
+    let (data, errors) = if opts.count_only {
+        (Vec::new(), Vec::new())
+    } else {
+        let lo = opts.offset.min(body.len());
+        let hi = match opts.max_rows {
+            Some(max) => lo.saturating_add(max).min(body.len()),
+            None => body.len(),
+        };
+        convert_rows(&body[lo..hi], header_offset + lo as u64)
     };
 
-    let mut data: Vec<Vec<Value>> = Vec::new();
-    let mut errors: Vec<ParseError> = Vec::new();
-    let mut total_rows: u64 = 0;
-    let mut row_num: u64 = opts.skip_rows as u64 + if opts.has_headers { 1 } else { 0 };
-
-    for row in rows {
-        row_num += 1;
-        total_rows += 1;
-
-        if total_rows <= opts.offset as u64 {
-            continue;
-        }
-        if let Some(max) = opts.max_rows
-            && data.len() >= max
-        {
-            continue;
-        }
-
-        let cells: Vec<Value> = row.iter().map(|c| cell_to_value(c, row_num, &mut errors)).collect();
-        data.push(cells);
-    }
-
-    Ok(ParsedFile {
+    ParsedFile {
         format,
-        columns: columns.clone(),
         stats: ParseStats {
             total_rows,
             returned_rows: data.len() as u64,
-            columns: columns.len() as u32,
+            columns: column_count,
             elapsed_ms: start.elapsed().as_millis(),
         },
+        columns,
         data,
         errors,
-    })
+    }
 }
 
-fn cell_to_value(cell: &Data, row: u64, errors: &mut Vec<ParseError>) -> Value {
-    match cell {
-        Data::Empty => Value::Null,
-        Data::String(s) => Value::String(s.clone()),
-        Data::Float(f) => serde_json::Number::from_f64(*f)
+/// Convert a window of spreadsheet rows into JSON cells, in parallel.
+///
+/// `first_row_offset` is the count of rows before `window[0]` (skipped rows +
+/// header), so cell-error messages can report a correct 1-based row number.
+fn convert_rows<D: DataType + Sync>(
+    window: &[&[D]],
+    first_row_offset: u64,
+) -> (Vec<Vec<Value>>, Vec<ParseError>) {
+    let converted: Vec<(Vec<Value>, Vec<ParseError>)> = window
+        .par_iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let row_num = first_row_offset + i as u64 + 1;
+            let mut errs = Vec::new();
+            let cells = row
+                .iter()
+                .map(|c| cell_to_value(c, row_num, &mut errs))
+                .collect();
+            (cells, errs)
+        })
+        .collect();
+
+    let mut data = Vec::with_capacity(converted.len());
+    let mut errors = Vec::new();
+    for (cells, errs) in converted {
+        data.push(cells);
+        if !errs.is_empty() {
+            errors.extend(errs);
+        }
+    }
+    (data, errors)
+}
+
+fn cell_to_value<D: DataType>(cell: &D, row: u64, errors: &mut Vec<ParseError>) -> Value {
+    if cell.is_empty() {
+        return Value::Null;
+    }
+    if cell.is_datetime() || cell.is_datetime_iso() || cell.is_duration_iso() {
+        return match cell.as_datetime() {
+            Some(dt) => Value::String(dt.to_string()),
+            None => match cell.get_string() {
+                Some(s) => Value::String(s.to_string()),
+                None => Value::Null,
+            },
+        };
+    }
+    if let Some(s) = cell.get_string() {
+        return Value::String(s.to_string());
+    }
+    if let Some(i) = cell.get_int() {
+        return Value::Number(i.into());
+    }
+    if let Some(f) = cell.get_float() {
+        return serde_json::Number::from_f64(f)
             .map(Value::Number)
-            .unwrap_or(Value::Null),
-        Data::Int(i) => Value::Number((*i).into()),
-        Data::Bool(b) => Value::Bool(*b),
-        Data::DateTime(_) | Data::DateTimeIso(_) | Data::DurationIso(_) => {
-            if let Some(dt) = cell.as_datetime() {
-                Value::String(dt.to_string())
-            } else if let Some(s) = cell.get_string() {
-                Value::String(s.to_string())
-            } else {
-                Value::Null
-            }
-        }
-        Data::Error(e) => {
-            errors.push(ParseError { row, message: format!("Cell error: {e:?}") });
-            Value::Null
-        }
+            .unwrap_or(Value::Null);
     }
+    if let Some(b) = cell.get_bool() {
+        return Value::Bool(b);
+    }
+    if let Some(e) = cell.get_error() {
+        errors.push(ParseError {
+            row,
+            message: format!("Cell error: {e:?}"),
+        });
+    }
+    Value::Null
 }
 
-fn cell_to_header(cell: &Data) -> String {
-    match cell {
-        Data::String(s) if !s.trim().is_empty() => s.trim().to_string(),
-        Data::Float(f) => f.to_string(),
-        Data::Int(i) => i.to_string(),
-        _ => String::new(),
+fn cell_to_header<D: DataType>(cell: &D) -> String {
+    if let Some(s) = cell.get_string() {
+        return s.trim().to_string();
     }
+    if let Some(i) = cell.get_int() {
+        return i.to_string();
+    }
+    if let Some(f) = cell.get_float() {
+        return f.to_string();
+    }
+    String::new()
 }
 
 fn col_letter(i: usize) -> String {
@@ -116,7 +188,9 @@ fn col_letter(i: usize) -> String {
     let mut s = String::new();
     loop {
         s.insert(0, (b'A' + (n % 26) as u8) as char);
-        if n < 26 { break; }
+        if n < 26 {
+            break;
+        }
         n = n / 26 - 1;
     }
     s
@@ -134,5 +208,37 @@ fn empty_result(format: FileFormat, start: Instant) -> ParsedFile {
             elapsed_ms: start.elapsed().as_millis(),
         },
         errors: vec![],
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::field_reassign_with_default)]
+mod tests {
+    use super::*;
+    use crate::domain::processing::entities::ParseOptions;
+
+    fn fixture() -> Vec<u8> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ventas.xlsx"
+        ))
+        .expect("fixture")
+    }
+
+    #[test]
+    fn reads_the_sample_sheet() {
+        let out = parse(&fixture(), FileFormat::Xlsx, &ParseOptions::default()).unwrap();
+        assert!(matches!(out.format, FileFormat::Xlsx));
+        assert!(!out.columns.is_empty());
+        assert!(out.stats.total_rows >= 1);
+        assert_eq!(out.stats.columns as usize, out.columns.len());
+    }
+
+    #[test]
+    fn sheet_out_of_range_errors() {
+        let mut o = ParseOptions::default();
+        o.sheet = 9;
+        let err = parse(&fixture(), FileFormat::Xlsx, &o).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("sheet"));
     }
 }
