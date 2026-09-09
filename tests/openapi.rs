@@ -36,8 +36,7 @@ async fn scalar_ui_is_served() {
 #[tokio::test]
 async fn docs_are_absent_when_disabled() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut config =
-        rust_api::bootstrap::test_config(tmp.path().to_string_lossy().to_string());
+    let mut config = rust_api::bootstrap::test_config(tmp.path().to_string_lossy().to_string());
     config.enable_api_docs = false;
     let router = rust_api::bootstrap::build_app(config);
 

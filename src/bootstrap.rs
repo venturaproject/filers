@@ -22,6 +22,7 @@ use crate::{
             entities::{Role, User, UserStatus},
             repository::{SessionRepository, UserRepository},
         },
+        processing::repository::JobRepository,
     },
     infrastructure::{
         http::{ratelimit::RateLimiter, router},
@@ -39,18 +40,19 @@ use crate::{
     state::AppState,
 };
 
-/// The four auth-critical repos, either in-memory or Postgres-backed.
-struct AuthStores {
+/// The swappable repos — in-memory or Postgres-backed, chosen at startup.
+struct Stores {
     users: Arc<dyn UserRepository>,
     sessions: Arc<dyn SessionRepository>,
     clients: Arc<dyn ApiClientRepository>,
     tokens: Arc<dyn ClientTokenRepository>,
+    jobs: Arc<dyn JobRepository>,
 }
 
 /// Build the full application state with **in-memory** repositories.
 /// Used by the test suite and as the fallback when `DATABASE_URL` is unset.
 pub fn build_state(config: Config) -> Arc<AppState> {
-    let stores = AuthStores {
+    let stores = Stores {
         users: Arc::new(MemoryUserRepository::new(default_seed_users(
             &config.seed_user,
             config.seed_demo_users,
@@ -58,6 +60,7 @@ pub fn build_state(config: Config) -> Arc<AppState> {
         sessions: Arc::new(MemorySessionRepository::new()),
         clients: Arc::new(MemoryApiClientRepository::new()),
         tokens: Arc::new(MemoryClientTokenRepository::new()),
+        jobs: Arc::new(MemoryJobRepository::new()),
     };
     assemble_state(config, stores)
 }
@@ -74,20 +77,21 @@ pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> 
     let users: Arc<dyn UserRepository> = Arc::new(postgres::PgUserRepository::new(pool.clone()));
     seed_users_if_missing(users.as_ref(), &config.seed_user, config.seed_demo_users).await?;
 
-    let stores = AuthStores {
+    let stores = Stores {
         users,
         sessions: Arc::new(postgres::PgSessionRepository::new(pool.clone())),
         clients: Arc::new(postgres::PgApiClientRepository::new(pool.clone())),
-        tokens: Arc::new(postgres::PgClientTokenRepository::new(pool)),
+        tokens: Arc::new(postgres::PgClientTokenRepository::new(pool.clone())),
+        jobs: Arc::new(postgres::PgJobRepository::new(pool)),
     };
     tracing::info!("persistence: Postgres");
     Ok(assemble_state(config, stores))
 }
 
-/// Everything downstream of the swappable auth repos: RBAC catalogue + job store
-/// (still in-memory), the services, and the auth rate limiter.
-fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
-    let jobs = Arc::new(MemoryJobRepository::new());
+/// Everything downstream of the swappable repos: RBAC catalogue (a static seeded
+/// in-memory catalogue), the services, and the auth rate limiter.
+fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
+    let jobs = stores.jobs;
     let notifier = crate::application::processing::notifier::Notifier::new(
         config.webhook_url.clone(),
         config.webhook_secret.clone(),

@@ -85,7 +85,7 @@ pub struct ParseStats {
 /// consumed process-wide during the parse. When `parse_ms` is far above
 /// `parse_cpu_ms` the host was starved of CPU — the work itself is cheap and the
 /// wall time is contention, not processing.
-#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Timings {
     /// Opening the workbook / building the CSV reader.
     pub open_ms: u128,
@@ -196,7 +196,7 @@ impl JobOrigin {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileResult {
     pub file: String,
     pub rows: u64,
@@ -212,7 +212,7 @@ pub struct FileResult {
     pub output: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Job {
     pub id: Uuid,
     pub status: JobStatus,

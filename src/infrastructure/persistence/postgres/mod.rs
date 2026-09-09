@@ -1,18 +1,21 @@
-//! Postgres-backed repositories for the auth-critical stores (users, sessions,
-//! API clients, client tokens). Selected at startup when `DATABASE_URL` is set;
+//! Postgres-backed repositories, selected at startup when `DATABASE_URL` is set;
 //! otherwise the process falls back to the in-memory repositories.
 //!
-//! RBAC (roles/permissions) and the job history stay in-memory for now.
+//! Covered: the auth-critical stores (users, sessions, API clients, client
+//! tokens) and the processing job history. RBAC (roles/permissions) stays
+//! in-memory — it's a static seeded catalogue.
 
 use std::time::Duration;
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 pub mod api_client_repository;
+pub mod job_repository;
 pub mod session_repository;
 pub mod user_repository;
 
 pub use api_client_repository::{PgApiClientRepository, PgClientTokenRepository};
+pub use job_repository::PgJobRepository;
 pub use session_repository::PgSessionRepository;
 pub use user_repository::PgUserRepository;
 
