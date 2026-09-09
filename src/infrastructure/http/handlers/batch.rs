@@ -3,7 +3,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::{
-    application::processing::service::BatchRequest,
+    application::processing::service::{BatchContext, BatchRequest},
     errors::{AppError, AppResult},
     infrastructure::http::middleware::api_key::ApiPrincipal,
     state::AppState,
@@ -38,10 +38,13 @@ pub async fn handle(
         .start_batch(
             dir,
             body.options.unwrap_or_default(),
-            origin,
-            actor,
-            principal.owner_key(),
-            body.webhook_url,
+            BatchContext {
+                origin,
+                actor,
+                owner: principal.owner_key(),
+                webhook_url: body.webhook_url,
+                output: body.output,
+            },
         )
         .await?;
 

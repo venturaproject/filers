@@ -12,7 +12,7 @@ use serde_json::{Number, Value};
 use crate::domain::processing::entities::{ParseStats, ParsedFile};
 use crate::errors::{AppError, AppResult};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Spec {
     /// Keep only these columns, in this order. Omit to keep all.
     #[serde(default)]
@@ -42,7 +42,7 @@ pub enum CastType {
     Boolean,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Predicate {
     pub eq: Option<Value>,
     pub ne: Option<Value>,

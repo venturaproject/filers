@@ -150,10 +150,13 @@ pub async fn create(
         .start_batch(
             dir,
             ParseOptions::default(),
-            JobOrigin::Admin,
-            Some(admin.email.clone()),
-            Some(admin.id.to_string()),
-            None,
+            crate::application::processing::service::BatchContext {
+                origin: JobOrigin::Admin,
+                actor: Some(admin.email.clone()),
+                owner: Some(admin.id.to_string()),
+                webhook_url: None,
+                output: None,
+            },
         )
         .await?;
 

@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use axum::{
     Json,
     extract::{Path, State},
+    http::header,
+    response::{IntoResponse, Response},
 };
-use std::sync::Arc;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -12,19 +16,15 @@ use crate::{
     state::AppState,
 };
 
-/// GET /api/jobs/:id
-pub async fn handle(
-    State(state): State<Arc<AppState>>,
-    principal: ApiPrincipal,
-    Path(id): Path<Uuid>,
-) -> AppResult<Json<Job>> {
+/// Fetch a job the caller is allowed to see, or a 404 that doesn't confirm the
+/// id exists for another tenant.
+async fn owned_job(state: &AppState, principal: &ApiPrincipal, id: Uuid) -> AppResult<Job> {
     if let Some(client_id) = principal.client_id() {
         state
             .api_clients
             .authorize(client_id, "files:read", false)
             .await?;
     }
-
     let job = state
         .processing
         .jobs
@@ -32,13 +32,76 @@ pub async fn handle(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Job {id}")))?;
 
-    // Scope to the creating principal — a 404 (not 403) so a valid caller can't
-    // probe which job ids exist for other tenants.
     let owned =
         principal.is_privileged() || (job.owner.is_some() && job.owner == principal.owner_key());
     if !owned {
         return Err(AppError::NotFound(format!("Job {id}")));
     }
+    Ok(job)
+}
 
-    Ok(Json(job))
+/// GET /api/jobs/:id
+pub async fn handle(
+    State(state): State<Arc<AppState>>,
+    principal: ApiPrincipal,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Job>> {
+    Ok(Json(owned_job(&state, &principal, id).await?))
+}
+
+/// GET /api/jobs/:id/results — list the files a batch job generated.
+pub async fn results(
+    State(state): State<Arc<AppState>>,
+    principal: ApiPrincipal,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<serde_json::Value>> {
+    owned_job(&state, &principal, id).await?;
+
+    let files: Vec<_> = state
+        .processing
+        .list_results(id)
+        .await
+        .into_iter()
+        .map(|(name, size)| {
+            json!({ "name": name, "size_bytes": size, "url": format!("/api/jobs/{id}/results/{name}") })
+        })
+        .collect();
+
+    Ok(Json(json!({ "job_id": id, "results": files })))
+}
+
+/// GET /api/jobs/:id/results/:name — download one generated file.
+pub async fn result_file(
+    State(state): State<Arc<AppState>>,
+    principal: ApiPrincipal,
+    Path((id, name)): Path<(Uuid, String)>,
+) -> AppResult<Response> {
+    owned_job(&state, &principal, id).await?;
+
+    let path = state
+        .processing
+        .result_path(id, &name)
+        .ok_or_else(|| AppError::BadRequest("invalid result name".into()))?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| AppError::NotFound(format!("result '{name}'")))?;
+
+    let content_type = match name.rsplit_once('.').map(|(_, e)| e) {
+        Some("csv") => "text/csv; charset=utf-8",
+        Some("ndjson") => "application/x-ndjson",
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _ => "application/json",
+    };
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
 }

@@ -92,7 +92,8 @@ fn assemble_state(config: Config, stores: AuthStores) -> Arc<AppState> {
         config.webhook_url.clone(),
         config.webhook_secret.clone(),
     );
-    let processing = Arc::new(ProcessingService::with_notifier(jobs, notifier));
+    let results_base = std::path::Path::new(&config.batch_base_dir).join("_results");
+    let processing = Arc::new(ProcessingService::build(jobs, notifier, Some(results_base)));
 
     // RBAC catalogue — roles reference the seeded permissions by id.
     let permissions = MemoryPermissionRepository::seeded();

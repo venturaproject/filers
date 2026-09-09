@@ -207,6 +207,9 @@ pub struct FileResult {
     /// Phase breakdown for this file, when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timings: Option<Timings>,
+    /// Generated result filename (batch jobs with an `output` spec).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -294,6 +297,7 @@ impl Job {
                     status: "ok".into(),
                     error: None,
                     timings: Some(timings),
+                    output: None,
                 }];
             }
             Err((error, elapsed_ms)) => {
@@ -308,6 +312,7 @@ impl Job {
                     status: "error".into(),
                     error: Some(error),
                     timings: None,
+                    output: None,
                 }];
             }
         }

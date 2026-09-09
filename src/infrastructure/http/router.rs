@@ -41,6 +41,8 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/generate/xlsx", post(generate::xlsx))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
+        .route("/api/jobs/:id/results", get(jobs::results))
+        .route("/api/jobs/:id/results/:name", get(jobs::result_file))
         // Admin UI auth (session cookie)
         .route("/api/v1/config", get(meta::config))
         .route("/api/v1/csrf/", get(meta::csrf))

@@ -127,6 +127,16 @@ impl TestApp {
         self.send(req).await
     }
 
+    /// GET with an `x-api-key` header.
+    pub async fn get_key(&mut self, path: &str, key: &str) -> Resp {
+        let req = self
+            .base("GET", path)
+            .header("x-api-key", key)
+            .body(Body::empty())
+            .unwrap();
+        self.send(req).await
+    }
+
     pub async fn delete(&mut self, path: &str) -> Resp {
         let req = self.base("DELETE", path).body(Body::empty()).unwrap();
         self.send(req).await

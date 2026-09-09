@@ -19,6 +19,64 @@ async fn wait_completed(app: &mut TestApp, job_id: &str) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn batch_with_an_output_spec_produces_downloadable_results() {
+    let mut app = TestApp::new();
+    tokio::fs::write(app.batch_dir().join("a.csv"), b"id,n\n1,10\n2,20\n3,30\n")
+        .await
+        .unwrap();
+    tokio::fs::write(app.batch_dir().join("b.csv"), b"id,n\n9,90\n")
+        .await
+        .unwrap();
+
+    let started = app
+        .post_json_key(
+            "/api/process/batch",
+            "test-key",
+            serde_json::json!({
+                "output": { "to": "json", "transform": { "filter": { "n": { "gte": 20 } } } }
+            }),
+        )
+        .await;
+    assert_eq!(started.status, StatusCode::OK);
+    let job_id = started.json["job_id"].as_str().unwrap().to_string();
+
+    // poll via the api-key endpoint (service key sees any job)
+    let mut done = false;
+    for _ in 0..50 {
+        let r = app
+            .get_key(&format!("/api/jobs/{job_id}"), "test-key")
+            .await;
+        if r.json["status"] == "completed" {
+            done = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+    }
+    assert!(done, "batch never completed");
+
+    // list
+    let list = app
+        .get_key(&format!("/api/jobs/{job_id}/results"), "test-key")
+        .await;
+    assert_eq!(list.status, StatusCode::OK);
+    let names: Vec<&str> = list.json["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"a.json") && names.contains(&"b.json"));
+
+    // download a.json — filter n>=20 keeps rows 2 and 3
+    let dl = app
+        .get_key(&format!("/api/jobs/{job_id}/results/a.json"), "test-key")
+        .await;
+    assert_eq!(dl.status, StatusCode::OK);
+    let rows: serde_json::Value = serde_json::from_slice(&dl.body).unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn jobs_list_requires_admin() {
     let mut app = TestApp::new();
     assert_eq!(

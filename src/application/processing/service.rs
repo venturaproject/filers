@@ -16,6 +16,7 @@ use crate::domain::processing::{
 use crate::errors::{AppError, AppResult};
 
 use super::notifier::Notifier;
+use super::operations::{convert, transform};
 use super::parsers;
 
 pub struct ProcessingService {
@@ -24,14 +25,21 @@ pub struct ProcessingService {
     /// so a burst of large files cannot exhaust the blocking thread pool.
     parse_semaphore: Semaphore,
     notifier: Notifier,
+    /// `<BATCH_BASE_DIR>/_results` — where batch jobs with an `output` spec write
+    /// their generated files. `None` disables batch result storage.
+    results_base: Option<PathBuf>,
 }
 
 impl ProcessingService {
     pub fn new(jobs: Arc<dyn JobRepository>) -> Self {
-        Self::with_notifier(jobs, Notifier::disabled())
+        Self::build(jobs, Notifier::disabled(), None)
     }
 
-    pub fn with_notifier(jobs: Arc<dyn JobRepository>, notifier: Notifier) -> Self {
+    pub fn build(
+        jobs: Arc<dyn JobRepository>,
+        notifier: Notifier,
+        results_base: Option<PathBuf>,
+    ) -> Self {
         let permits = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
@@ -39,6 +47,7 @@ impl ProcessingService {
             jobs,
             parse_semaphore: Semaphore::new(permits),
             notifier,
+            results_base,
         }
     }
 
@@ -100,11 +109,15 @@ impl ProcessingService {
         self: Arc<Self>,
         dir: PathBuf,
         options: ParseOptions,
-        origin: JobOrigin,
-        actor: Option<String>,
-        owner: Option<String>,
-        webhook_url: Option<String>,
+        ctx: BatchContext,
     ) -> AppResult<(uuid::Uuid, usize)> {
+        let BatchContext {
+            origin,
+            actor,
+            owner,
+            webhook_url,
+            output,
+        } = ctx;
         let entries = collect_files(&dir).await?;
         let file_count = entries.len();
 
@@ -121,9 +134,21 @@ impl ProcessingService {
 
         let svc = self.clone();
         let mut opts = options;
-        // Batch only stores per-file stats — never the cells — so let the parser
-        // skip building the `Vec<Vec<Value>>` altogether.
-        opts.count_only = true;
+        // Batch normally only keeps per-file stats — skip building the cells.
+        // But when the caller asked for generated output we need the data.
+        opts.count_only = output.is_none();
+
+        // Where generated files land, if requested.
+        let result_dir = match (&output, &self.results_base) {
+            (Some(_), Some(base)) => {
+                let d = base.join(job_id.to_string());
+                sweep_old_results(base).await;
+                let _ = fs::create_dir_all(&d).await;
+                Some(d)
+            }
+            _ => None,
+        };
+        let output = Arc::new(output);
 
         tokio::spawn(async move {
             // mark running
@@ -139,6 +164,8 @@ impl ProcessingService {
             for (idx, path) in entries.iter().cloned().enumerate() {
                 let svc = svc.clone();
                 let opts = opts.clone();
+                let output = output.clone();
+                let result_dir = result_dir.clone();
                 tasks.spawn(async move {
                     let file_name = path
                         .file_name()
@@ -153,15 +180,24 @@ impl ProcessingService {
                     };
 
                     let result = match outcome {
-                        Ok(parsed) => FileResult {
-                            file: file_name,
-                            rows: parsed.stats.total_rows,
-                            columns: parsed.stats.columns,
-                            elapsed_ms: t.elapsed().as_millis(),
-                            status: "ok".into(),
-                            error: None,
-                            timings: Some(parsed.timings),
-                        },
+                        Ok(parsed) => {
+                            let output_name = match (output.as_ref(), &result_dir) {
+                                (Some(spec), Some(dir)) => {
+                                    render_output(&parsed, spec, dir, &file_name).await
+                                }
+                                _ => None,
+                            };
+                            FileResult {
+                                file: file_name,
+                                rows: parsed.stats.total_rows,
+                                columns: parsed.stats.columns,
+                                elapsed_ms: t.elapsed().as_millis(),
+                                status: "ok".into(),
+                                error: None,
+                                timings: Some(parsed.timings),
+                                output: output_name,
+                            }
+                        }
                         Err(e) => FileResult {
                             file: file_name,
                             rows: 0,
@@ -170,6 +206,7 @@ impl ProcessingService {
                             status: "error".into(),
                             error: Some(e.to_string()),
                             timings: None,
+                            output: None,
                         },
                     };
                     (idx, result)
@@ -222,6 +259,42 @@ impl ProcessingService {
 
         Ok((job_id, file_count))
     }
+
+    /// `(filename, size_bytes)` for every generated result of a batch job.
+    pub async fn list_results(&self, job_id: uuid::Uuid) -> Vec<(String, u64)> {
+        let Some(base) = &self.results_base else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if let Ok(mut rd) = fs::read_dir(base.join(job_id.to_string())).await {
+            while let Ok(Some(e)) = rd.next_entry().await {
+                if let Ok(meta) = e.metadata().await
+                    && meta.is_file()
+                    && let Some(name) = e.file_name().to_str()
+                {
+                    out.push((name.to_string(), meta.len()));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// The on-disk path of one result file, or `None` if `name` is unsafe or
+    /// result storage is disabled.
+    pub fn result_path(&self, job_id: uuid::Uuid, name: &str) -> Option<PathBuf> {
+        let base = self.results_base.as_ref()?;
+        if name.is_empty()
+            || name.contains('/')
+            || name.contains('\\')
+            || Path::new(name)
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+        {
+            return None;
+        }
+        Some(base.join(job_id.to_string()).join(name))
+    }
 }
 
 /// Upper bound on files scanned by one batch job, so a directory with tens of
@@ -235,6 +308,81 @@ pub struct BatchRequest {
     pub options: Option<ParseOptions>,
     /// Override the configured `WEBHOOK_URL` for this job's completion callback.
     pub webhook_url: Option<String>,
+    /// Generate a converted file per input, retrievable at
+    /// `GET /api/jobs/:id/results/:name`.
+    pub output: Option<BatchOutput>,
+}
+
+/// Who triggered a batch job and what it should do beyond parsing.
+#[derive(Debug)]
+pub struct BatchContext {
+    pub origin: JobOrigin,
+    pub actor: Option<String>,
+    pub owner: Option<String>,
+    pub webhook_url: Option<String>,
+    pub output: Option<BatchOutput>,
+}
+
+/// What a batch job should produce per input file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchOutput {
+    /// `csv` | `json` | `ndjson` | `xlsx`.
+    pub to: String,
+    /// Optional transform applied before conversion.
+    #[serde(default)]
+    pub transform: Option<transform::Spec>,
+}
+
+/// Days a batch job's generated results linger on disk before the next batch
+/// job sweeps them.
+const RESULT_TTL_DAYS: u64 = 7;
+
+/// Render one parsed file per the batch `output` spec and write it into `dir`.
+/// Returns the result filename on success.
+async fn render_output(
+    parsed: &ParsedFile,
+    spec: &BatchOutput,
+    dir: &Path,
+    source_name: &str,
+) -> Option<String> {
+    let target = convert::Target::parse(&spec.to)?;
+
+    // Optional transform first.
+    let owned;
+    let file: &ParsedFile = match &spec.transform {
+        Some(t) => match transform::run(parsed, t, Instant::now()) {
+            Ok(out) => {
+                owned = out.file;
+                &owned
+            }
+            Err(_) => return None,
+        },
+        None => parsed,
+    };
+
+    let bytes = convert::run(file, target, b',').ok()?;
+    let stem = source_name.rsplit_once('.').map_or(source_name, |(s, _)| s);
+    let name = format!("{stem}.{}", target.extension());
+    fs::write(dir.join(&name), bytes).await.ok()?;
+    Some(name)
+}
+
+/// Best-effort GC of result directories older than [`RESULT_TTL_DAYS`].
+async fn sweep_old_results(base: &Path) {
+    let Ok(mut rd) = fs::read_dir(base).await else {
+        return;
+    };
+    let cutoff =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(RESULT_TTL_DAYS * 24 * 3600);
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        if let Ok(meta) = entry.metadata().await
+            && meta.is_dir()
+            && let Ok(modified) = meta.modified()
+            && modified < cutoff
+        {
+            let _ = fs::remove_dir_all(entry.path()).await;
+        }
+    }
 }
 
 /// Cheap magic-byte check that the upload matches its claimed extension.
