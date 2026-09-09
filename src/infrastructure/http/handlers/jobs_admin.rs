@@ -55,6 +55,12 @@ pub async fn list(
     {
         jobs.retain(|j| j.origin.as_str() == origin);
     }
+    if let Some(operation) = q
+        .get("operation")
+        .filter(|s| !s.is_empty() && s.as_str() != "all")
+    {
+        jobs.retain(|j| &j.operation == operation);
+    }
 
     let rows: Vec<Value> = jobs.iter().map(|j| j.to_summary_json()).collect();
     let mut env = envelope(rows, &params);

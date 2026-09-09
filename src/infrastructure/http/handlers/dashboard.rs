@@ -51,6 +51,63 @@ pub async fn overview(
         Some(durations.iter().sum::<i64>() / durations.len() as i64)
     };
 
+    let failed = terminal
+        .iter()
+        .filter(|j| j.status == JobStatus::Failed)
+        .count();
+    let error_rate = if terminal.is_empty() {
+        None
+    } else {
+        Some(failed as f64 / terminal.len() as f64)
+    };
+
+    // Per-operation rollup: count / failed / avg / p95.
+    let mut ops: BTreeMap<&str, (u64, u64, Vec<i64>)> = BTreeMap::new();
+    for j in &jobs {
+        let e = ops.entry(j.operation.as_str()).or_default();
+        e.0 += 1;
+        if j.status == JobStatus::Failed {
+            e.1 += 1;
+        }
+        if let Some(d) = j.duration_ms() {
+            e.2.push(d);
+        }
+    }
+    let per_operation: Value = ops
+        .into_iter()
+        .map(|(op, (count, failed, mut ds))| {
+            ds.sort_unstable();
+            let avg = (!ds.is_empty()).then(|| ds.iter().sum::<i64>() / ds.len() as i64);
+            (
+                op.to_string(),
+                json!({
+                    "count": count,
+                    "failed": failed,
+                    "avg_ms": avg,
+                    "p95_ms": percentile(&ds, 0.95),
+                }),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+
+    // Hourly activity for the last 24h.
+    let now = Utc::now();
+    let mut timeline: Vec<Value> = Vec::with_capacity(24);
+    for h in (0..24).rev() {
+        let start = now - Duration::hours(h + 1);
+        let end = now - Duration::hours(h);
+        let in_bucket: Vec<&Job> = jobs
+            .iter()
+            .filter(|j| j.created_at >= start && j.created_at < end)
+            .collect();
+        timeline.push(json!({
+            "hour": end.format("%Y-%m-%dT%H:00:00Z").to_string(),
+            "total": in_bucket.len(),
+            "failed": in_bucket.iter().filter(|j| j.status == JobStatus::Failed).count(),
+        }));
+    }
+
     let processings = json!({
         "total": jobs.len(),
         "last_24h": jobs.iter().filter(|j| j.created_at >= since).count(),
@@ -58,8 +115,12 @@ pub async fn overview(
         "by_kind": tally(jobs.iter().map(|j| j.kind.as_str())),
         "by_origin": tally(jobs.iter().map(|j| j.origin.as_str())),
         "by_status": tally(jobs.iter().map(|j| j.status.as_str())),
+        "by_operation": tally(jobs.iter().map(|j| j.operation.as_str())),
         "avg_ms": avg_ms,
         "p95_ms": percentile(&durations, 0.95),
+        "error_rate": error_rate,
+        "per_operation": per_operation,
+        "timeline": timeline,
     });
 
     let in_flight = json!({

@@ -60,6 +60,7 @@ interface JobFilters {
   search?: string
   status?: string
   origin?: string
+  operation?: string
   page?: string
   per_page?: string
   [key: string]: string | undefined
@@ -97,6 +98,7 @@ export default function JobsPage() {
         per_page: currentPerPage,
         status: urlFilters.status,
         origin: urlFilters.origin,
+        operation: urlFilters.operation,
         search: urlFilters.search,
       }),
     refetchInterval: (query) =>
@@ -243,12 +245,25 @@ export default function JobsPage() {
                         onChange: (v) =>
                           navigateFilters({ ...filters, origin: v || undefined, page: '1' }),
                       },
+                      {
+                        key: 'operation',
+                        label: 'Operación',
+                        allLabel: 'Todas las operaciones',
+                        value: urlFilters.operation,
+                        options: Object.entries(OPERATION_LABEL).map(([value, label]) => ({
+                          value,
+                          label,
+                        })),
+                        onChange: (v) =>
+                          navigateFilters({ ...filters, operation: v || undefined, page: '1' }),
+                      },
                     ]}
                     onClearAll={() =>
                       navigateFilters({
                         ...filters,
                         status: undefined,
                         origin: undefined,
+                        operation: undefined,
                         page: '1',
                       })
                     }
@@ -369,6 +384,32 @@ export default function JobsPage() {
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Procesando…
                   </p>
+                )}
+
+                {job.results.length === 1 && job.results[0].timings && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Rendimiento</p>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border p-3 text-sm">
+                      {(
+                        [
+                          ['Abrir', 'open_ms'],
+                          ['Leer hoja / stream', 'read_ms'],
+                          ['Convertir celdas', 'convert_ms'],
+                          ['Parse total (reloj)', 'parse_ms'],
+                          ['Parse (CPU)', 'parse_cpu_ms'],
+                          ['Subida (red)', 'upload_ms'],
+                          ['Total extremo a extremo', 'total_ms'],
+                        ] as const
+                      ).map(([label, key]) => (
+                        <div key={key} className="flex justify-between gap-2">
+                          <dt className="text-muted-foreground">{label}</dt>
+                          <dd className="font-mono tabular-nums">
+                            {job.results[0].timings![key].toLocaleString('es-ES')} ms
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
                 )}
 
                 {job.results.length > 0 && (

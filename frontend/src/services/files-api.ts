@@ -120,6 +120,7 @@ export interface ListJobsParams {
   per_page?: number
   status?: string
   origin?: string
+  operation?: string
   search?: string
 }
 
