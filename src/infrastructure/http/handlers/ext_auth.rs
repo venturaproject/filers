@@ -24,6 +24,17 @@ pub struct RefreshRequest {
 }
 
 /// POST /api/ext/auth/token — exchange `client_id` + `client_secret` for tokens.
+#[utoipa::path(
+    post,
+    path = "/api/ext/auth/token",
+    tag = "auth",
+    request_body = crate::infrastructure::http::openapi::TokenBody,
+    responses(
+        (status = 200, description = "`{ access_token, token_type, expires_in, refresh_token, scope }`"),
+        (status = 401, description = "Unknown client or bad secret"),
+        (status = 429, description = "Too many attempts from this IP"),
+    ),
+)]
 pub async fn token(
     State(state): State<Arc<AppState>>,
     ClientIp(ip): ClientIp,
@@ -38,6 +49,17 @@ pub async fn token(
 }
 
 /// POST /api/ext/auth/refresh — rotate a single-use refresh token.
+#[utoipa::path(
+    post,
+    path = "/api/ext/auth/refresh",
+    tag = "auth",
+    request_body = crate::infrastructure::http::openapi::RefreshBody,
+    responses(
+        (status = 200, description = "A fresh token pair"),
+        (status = 401, description = "Unknown, expired or already-used refresh token (reuse revokes the family)"),
+        (status = 429, description = "Too many attempts from this IP"),
+    ),
+)]
 pub async fn refresh(
     State(state): State<Arc<AppState>>,
     ClientIp(ip): ClientIp,

@@ -38,6 +38,10 @@ pub struct Config {
     pub webhook_url: Option<String>,
     /// HMAC-SHA256 key for the `X-Filers-Signature` webhook header.
     pub webhook_secret: Option<String>,
+    /// Serve the OpenAPI spec (`/api/openapi.json`) and Scalar docs UI
+    /// (`/api/docs`). `ENABLE_API_DOCS` overrides; unset defaults to
+    /// "on outside production, off in production".
+    pub enable_api_docs: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +54,10 @@ pub struct SeedUser {
 
 impl Config {
     pub fn from_env() -> Self {
+        let production = env::var("APP_ENV")
+            .map(|v| matches!(v.trim().to_lowercase().as_str(), "production" | "prod"))
+            .unwrap_or(false);
+
         Self {
             port: env::var("PORT")
                 .ok()
@@ -124,9 +132,7 @@ impl Config {
             seed_demo_users: env::var("SEED_DEMO_USERS")
                 .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
                 .unwrap_or(false),
-            production: env::var("APP_ENV")
-                .map(|v| matches!(v.trim().to_lowercase().as_str(), "production" | "prod"))
-                .unwrap_or(false),
+            production,
             database_url: env::var("DATABASE_URL")
                 .ok()
                 .map(|v| v.trim().to_string())
@@ -139,6 +145,12 @@ impl Config {
                 .ok()
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty()),
+            enable_api_docs: match env::var("ENABLE_API_DOCS").ok().as_deref().map(str::trim) {
+                Some(v) if !v.is_empty() => {
+                    matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on")
+                }
+                _ => !production,
+            },
         }
     }
 
@@ -198,6 +210,12 @@ impl Config {
         if self.database_url.is_none() {
             errors.push(
                 "DATABASE_URL is not set — auth state would be in-memory and lost on restart"
+                    .into(),
+            );
+        }
+        if self.enable_api_docs {
+            warnings.push(
+                "ENABLE_API_DOCS is on — the OpenAPI spec and Scalar UI are publicly reachable at /api/docs"
                     .into(),
             );
         }
@@ -310,6 +328,7 @@ mod tests {
             database_url: None,
             webhook_url: None,
             webhook_secret: None,
+            enable_api_docs: false,
         }
     }
 

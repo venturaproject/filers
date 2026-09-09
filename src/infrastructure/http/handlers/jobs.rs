@@ -41,6 +41,18 @@ async fn owned_job(state: &AppState, principal: &ApiPrincipal, id: Uuid) -> AppR
 }
 
 /// GET /api/jobs/:id
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}",
+    tag = "jobs",
+    params(("id" = String, Path, description = "Job id from `POST /api/process/batch`")),
+    responses(
+        (status = 200, description = "Job detail: status, per-file results, timings, generated outputs"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 404, description = "No such job, or it belongs to another caller"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn handle(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -50,6 +62,18 @@ pub async fn handle(
 }
 
 /// GET /api/jobs/:id/results — list the files a batch job generated.
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}/results",
+    tag = "jobs",
+    params(("id" = String, Path, description = "Job id")),
+    responses(
+        (status = 200, description = "`{ results: [{ name, bytes }] }` — only when the job ran with `output`"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 404, description = "No such job, or it belongs to another caller"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn results(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -71,6 +95,21 @@ pub async fn results(
 }
 
 /// GET /api/jobs/:id/results/:name — download one generated file.
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}/results/{name}",
+    tag = "jobs",
+    params(
+        ("id" = String, Path, description = "Job id"),
+        ("name" = String, Path, description = "File name from the results listing"),
+    ),
+    responses(
+        (status = 200, description = "The generated file as an attachment", content_type = "application/octet-stream"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 404, description = "No such job or file, or it belongs to another caller"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn result_file(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,

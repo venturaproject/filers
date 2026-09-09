@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FileFormat {
     Xlsx,
@@ -24,7 +24,7 @@ impl FileFormat {
 }
 
 /// Options the caller can pass to control parsing behavior.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ParseOptions {
     /// Sheet index for Excel files (0-based). Default: 0.
     #[serde(default)]
@@ -69,7 +69,7 @@ impl Default for ParseOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ParseStats {
     pub total_rows: u64,
     pub returned_rows: u64,
@@ -85,7 +85,7 @@ pub struct ParseStats {
 /// consumed process-wide during the parse. When `parse_ms` is far above
 /// `parse_cpu_ms` the host was starved of CPU — the work itself is cheap and the
 /// wall time is contention, not processing.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, utoipa::ToSchema)]
 pub struct Timings {
     /// Opening the workbook / building the CSV reader.
     pub open_ms: u128,
@@ -103,13 +103,13 @@ pub struct Timings {
     pub total_ms: u128,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ParseError {
     pub row: u64,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ParsedFile {
     pub format: FileFormat,
     pub columns: Vec<String>,

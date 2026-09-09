@@ -49,6 +49,9 @@ hmac            = "0.12"
 bytes    = "1"
 tempfile = "3"
 
+utoipa        = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-scalar = { version = "0.1", features = ["axum"] }
+
 argon2 = "0.5"
 rand   = "0.8"
 sha2   = "0.10"

@@ -8,7 +8,7 @@ use crate::domain::processing::entities::ParsedFile;
 use crate::errors::{AppError, AppResult};
 
 /// Sheet-building options, shared by the JSON body and the `?to=xlsx` path.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct XlsxOptions {
     #[serde(default = "default_sheet_name")]
     pub sheet_name: String,
@@ -39,7 +39,7 @@ fn default_true() -> bool {
 }
 
 /// JSON request body for `POST /api/generate/xlsx`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct XlsxRequest {
     /// Explicit column order. Optional when `rows` are objects.
     #[serde(default)]

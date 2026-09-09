@@ -16,7 +16,10 @@ use super::handlers::{
     process, process_ops, roles, users,
 };
 use super::middleware::security;
+use super::openapi::ApiDoc;
 use crate::state::AppState;
+use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 
 pub fn build(state: Arc<AppState>) -> Router {
     // Hard cap on any request body, enforced by axum before a handler runs.
@@ -30,7 +33,7 @@ pub fn build(state: Arc<AppState>) -> Router {
 
     let cors = build_cors(&state.config.cors_origins);
 
-    Router::new()
+    let router = Router::new()
         .route("/api/process", post(process::handle))
         .route("/api/process/profile", post(process_ops::profile))
         .route("/api/process/validate", post(process_ops::validate))
@@ -98,7 +101,22 @@ pub fn build(state: Arc<AppState>) -> Router {
         // OAuth2 client-credentials flow for external consumers (public)
         .route("/api/ext/auth/token", post(ext_auth::token))
         .route("/api/ext/auth/refresh", post(ext_auth::refresh))
-        .route("/health", get(health))
+        .route("/health", get(health));
+
+    // OpenAPI spec + Scalar docs UI. Gated by `ENABLE_API_DOCS`
+    // (default: on outside production, off in production).
+    let router = if state.config.enable_api_docs {
+        router
+            .route(
+                "/api/openapi.json",
+                get(|| async { axum::Json(ApiDoc::openapi()) }),
+            )
+            .merge(Scalar::with_url("/api/docs", ApiDoc::openapi()))
+    } else {
+        router
+    };
+
+    router
         .layer(DefaultBodyLimit::max(body_limit))
         .layer(middleware::from_fn_with_state(
             state.clone(),

@@ -235,5 +235,7 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         database_url: None,
         webhook_url: None,
         webhook_secret: None,
+        // Exercise the docs routes in integration tests.
+        enable_api_docs: true,
     }
 }

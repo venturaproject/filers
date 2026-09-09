@@ -14,6 +14,19 @@ use crate::{
 /// `path` is relative to the configured BATCH_BASE_DIR; absolute paths and `..`
 /// traversal are rejected. Returns immediately with a job_id; poll
 /// GET /api/jobs/:id for status.
+#[utoipa::path(
+    post,
+    path = "/api/process/batch",
+    tag = "batch",
+    request_body = crate::infrastructure::http::openapi::BatchBody,
+    responses(
+        (status = 200, description = "`{ job_id }` — poll `GET /api/jobs/{id}` for progress"),
+        (status = 400, description = "Bad `path` (traversal / absolute) or too many files"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:write` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn handle(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,

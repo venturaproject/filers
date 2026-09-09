@@ -17,6 +17,19 @@ use crate::{
 };
 
 /// POST /api/generate/xlsx — JSON `{ columns?, rows, options? }` → `.xlsx`.
+#[utoipa::path(
+    post,
+    path = "/api/generate/xlsx",
+    tag = "processing",
+    request_body = XlsxRequest,
+    responses(
+        (status = 200, description = "Generated workbook as an attachment", content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        (status = 400, description = "Empty or malformed `rows`"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:write` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn xlsx(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,

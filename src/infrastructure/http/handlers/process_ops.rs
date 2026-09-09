@@ -50,6 +50,19 @@ async fn trace_ok(
 // ── profile ─────────────────────────────────────────────────────────────────
 
 /// POST /api/process/profile — per-column type inference + summary stats.
+#[utoipa::path(
+    post,
+    path = "/api/process/profile",
+    tag = "processing",
+    request_body(content = crate::infrastructure::http::openapi::UploadForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "`{ report, stats, timings }` — per-column types, cardinality, min/max/mean, top values"),
+        (status = 400, description = "Unsupported format or corrupt file"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:read` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn profile(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -94,6 +107,19 @@ pub async fn profile(
 
 /// POST /api/process/validate?<parse opts> — multipart with a `schema` (JSON)
 /// field and a `file` field.
+#[utoipa::path(
+    post,
+    path = "/api/process/validate",
+    tag = "processing",
+    request_body(content = crate::infrastructure::http::openapi::SchemaFileForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "`{ valid, errors, checked_rows, ... }` — row-level rule violations, capped"),
+        (status = 400, description = "Missing/invalid `schema` or `file`"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:read` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn validate(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -174,6 +200,27 @@ impl ConvertQuery {
 }
 
 /// POST /api/process/convert?to=csv|json|ndjson — returns the converted file.
+#[utoipa::path(
+    post,
+    path = "/api/process/convert",
+    tag = "processing",
+    params(
+        ("to" = Option<String>, Query, description = "Output format: csv, json, ndjson or xlsx (default csv)"),
+        ("out_delimiter" = Option<char>, Query, description = "Delimiter for csv output"),
+        ("sheet" = Option<usize>, Query, description = "Sheet index (0-based)"),
+        ("skip_rows" = Option<usize>, Query, description = "Leading rows to skip"),
+        ("has_headers" = Option<bool>, Query, description = "First row is a header"),
+        ("delimiter" = Option<char>, Query, description = "Input CSV delimiter"),
+    ),
+    request_body(content = crate::infrastructure::http::openapi::UploadForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Converted file as an attachment", content_type = "application/octet-stream"),
+        (status = 400, description = "Unsupported format or bad `to` value"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:write` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn convert(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -219,6 +266,27 @@ pub async fn convert(
 /// POST /api/process/transform?<parse opts>&to=csv|json|ndjson — multipart with
 /// a `spec` (JSON) field and a `file` field. Returns the transformed data as
 /// JSON, or as a file when `to` is set.
+#[utoipa::path(
+    post,
+    path = "/api/process/transform",
+    tag = "processing",
+    params(
+        ("to" = Option<String>, Query, description = "Return a file instead of JSON: csv, json, ndjson or xlsx"),
+        ("out_delimiter" = Option<char>, Query, description = "Delimiter for csv output"),
+        ("sheet" = Option<usize>, Query, description = "Sheet index (0-based)"),
+        ("skip_rows" = Option<usize>, Query, description = "Leading rows to skip"),
+        ("has_headers" = Option<bool>, Query, description = "First row is a header"),
+        ("delimiter" = Option<char>, Query, description = "Input CSV delimiter"),
+    ),
+    request_body(content = crate::infrastructure::http::openapi::SpecFileForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "`{ columns, data, stats, matched_rows }` — or the converted file when `to` is set"),
+        (status = 400, description = "Missing/invalid `spec` or `file`"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:write` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn transform(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -345,6 +413,26 @@ impl DiffQuery {
 }
 
 /// POST /api/process/diff?key=id — multipart with an `a` file and a `b` file.
+#[utoipa::path(
+    post,
+    path = "/api/process/diff",
+    tag = "processing",
+    params(
+        ("key" = Option<String>, Query, description = "Comma-separated key column(s) to match rows on"),
+        ("sheet" = Option<usize>, Query, description = "Sheet index (0-based)"),
+        ("skip_rows" = Option<usize>, Query, description = "Leading rows to skip"),
+        ("has_headers" = Option<bool>, Query, description = "First row is a header"),
+        ("delimiter" = Option<char>, Query, description = "Input CSV delimiter"),
+    ),
+    request_body(content = crate::infrastructure::http::openapi::DiffForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "`{ added, removed, changed, unchanged, columns_added, columns_removed }` — detail capped at 5000"),
+        (status = 400, description = "Missing `a`/`b` or an unknown key column"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:read` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn diff(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
@@ -407,6 +495,26 @@ pub async fn diff(
 /// `file`. Runs the steps in order; returns the transformed data as JSON, or a
 /// file when the last step is `convert`, or 422 with the step reports when a
 /// `validate` step fails.
+#[utoipa::path(
+    post,
+    path = "/api/process/pipeline",
+    tag = "processing",
+    params(
+        ("sheet" = Option<usize>, Query, description = "Sheet index (0-based)"),
+        ("skip_rows" = Option<usize>, Query, description = "Leading rows to skip"),
+        ("has_headers" = Option<bool>, Query, description = "First row is a header"),
+        ("delimiter" = Option<char>, Query, description = "Input CSV delimiter"),
+    ),
+    request_body(content = crate::infrastructure::http::openapi::PipelineFileForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "`{ columns, data, stats, steps }` — or the converted file when the last step is `convert`"),
+        (status = 422, description = "A `validate` step failed; body carries the step reports"),
+        (status = 400, description = "Missing/invalid `pipeline` or `file`"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `files:write` scope"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
 pub async fn pipeline(
     State(state): State<Arc<AppState>>,
     principal: ApiPrincipal,
