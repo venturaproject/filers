@@ -61,7 +61,7 @@ export const endpoints = {
     generateXlsx: `/api/generate/xlsx`,
     jobs:      `${API_BASE}/jobs`,
     jobDetail: (id: string) => `${API_BASE}/jobs/${id}`,
-    jobResults:     (id: string) => `/api/jobs/${id}/results`,
-    jobResultFile:  (id: string, name: string) => `/api/jobs/${id}/results/${encodeURIComponent(name)}`,
+    jobResults:     (id: string) => `${API_BASE}/jobs/${id}/results`,
+    jobResultFile:  (id: string, name: string) => `${API_BASE}/jobs/${id}/results/${encodeURIComponent(name)}`,
   },
 }

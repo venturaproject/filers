@@ -11,6 +11,14 @@ import { FileDropzone } from '@/components/file-dropzone'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -38,6 +46,7 @@ import {
 import {
   CheckCircle2,
   Clock,
+  Download,
   Layers,
   Loader2,
   Plus,
@@ -51,12 +60,14 @@ import { useTableFilters } from '@/hooks/use-table-filters'
 import { useColumnReorder } from '@/hooks/use-column-reorder'
 import {
   filesApi,
+  type ConvertTarget,
   type JobOrigin,
   type JobStatus,
   type JobSummary,
 } from '@/services/files-api'
 import {
   KIND_LABEL,
+  OPERATION_LABEL,
   ORIGIN_LABEL,
   STATUS_LABEL,
   STATUS_VARIANT,
@@ -83,6 +94,8 @@ export default function JobsPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [newFiles, setNewFiles] = useState<File[]>([])
+  const [outputOn, setOutputOn] = useState(false)
+  const [outputFormat, setOutputFormat] = useState<ConvertTarget>('csv')
 
   const {
     filters,
@@ -126,13 +139,19 @@ export default function JobsPage() {
   })
 
   const upload = useMutation({
-    mutationFn: (files: File[]) => filesApi.createBatch(files),
+    mutationFn: (files: File[]) =>
+      filesApi.createBatch(files, outputOn ? { to: outputFormat } : undefined),
     onSuccess: (res) => {
       setNewOpen(false)
       setNewFiles([])
+      setOutputOn(false)
       setSelected(res.job_id)
       queryClient.invalidateQueries({ queryKey: ['batch-jobs'] })
     },
+  })
+
+  const downloadResult = useMutation({
+    mutationFn: (name: string) => filesApi.downloadJobResult(selected as string, name),
   })
 
   const list = jobsQuery.data
@@ -155,6 +174,14 @@ export default function JobsPage() {
   })
 
   const job = detailQuery.data
+
+  const resultsQuery = useQuery({
+    queryKey: ['batch-job-results', selected],
+    queryFn: () => filesApi.jobResults(selected as string),
+    enabled: !!selected && job?.kind === 'batch',
+    refetchInterval: () =>
+      job && !['completed', 'failed'].includes(job.status) ? 3000 : false,
+  })
 
   return (
     <AuthenticatedLayout title="Procesamientos">
@@ -335,6 +362,38 @@ export default function JobsPage() {
             disabled={upload.isPending}
           />
 
+          <div className="rounded-md border p-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={outputOn}
+                onCheckedChange={(c) => setOutputOn(!!c)}
+                disabled={upload.isPending}
+              />
+              Generar un archivo convertido por entrada
+            </label>
+            {outputOn && (
+              <div className="mt-3 flex items-center gap-2 pl-6 text-sm">
+                <span className="text-muted-foreground">Formato</span>
+                <Select
+                  value={outputFormat}
+                  onValueChange={(v) => setOutputFormat(v as ConvertTarget)}
+                >
+                  <SelectTrigger className="h-8 w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(['csv', 'json', 'ndjson', 'xlsx'] as ConvertTarget[]).map((t) => (
+                      <SelectItem key={t} value={t}>{t.toUpperCase()}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  descargable en el detalle del trabajo
+                </span>
+              </div>
+            )}
+          </div>
+
           {upload.isError && (
             <p className="text-sm text-destructive">
               {(upload.error as { response?: { data?: { error?: string } } })?.response?.data
@@ -378,9 +437,12 @@ export default function JobsPage() {
           {job && (
             <>
               <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
+                <SheetTitle className="flex flex-wrap items-center gap-2">
                   {job.label ?? `Trabajo ${job.id.slice(0, 8)}`}
                   <Badge variant={STATUS_VARIANT[job.status]}>{STATUS_LABEL[job.status]}</Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {OPERATION_LABEL[job.operation] ?? job.operation}
+                  </Badge>
                 </SheetTitle>
                 <SheetDescription className="font-mono text-xs">{job.id}</SheetDescription>
               </SheetHeader>
@@ -487,6 +549,34 @@ export default function JobsPage() {
                         </TableBody>
                       </Table>
                     </div>
+                  </div>
+                )}
+
+                {(resultsQuery.data?.results.length ?? 0) > 0 && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Archivos generados</p>
+                    <ul className="divide-y rounded-md border">
+                      {resultsQuery.data!.results.map((f) => (
+                        <li
+                          key={f.name}
+                          className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                        >
+                          <span className="truncate font-medium">{f.name}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {(f.size_bytes / 1024).toFixed(1)} KB
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 shrink-0 gap-1"
+                            disabled={downloadResult.isPending}
+                            onClick={() => downloadResult.mutate(f.name)}
+                          >
+                            <Download className="h-3.5 w-3.5" /> Descargar
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>

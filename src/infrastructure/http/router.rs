@@ -58,6 +58,11 @@ pub fn build(state: Arc<AppState>) -> Router {
             get(jobs_admin::list).post(jobs_admin::create),
         )
         .route("/api/v1/jobs/:id", get(jobs_admin::show))
+        .route("/api/v1/jobs/:id/results", get(jobs_admin::results))
+        .route(
+            "/api/v1/jobs/:id/results/:name",
+            get(jobs_admin::result_file),
+        )
         // Admin RBAC management (session cookie + admin role)
         .route("/api/v1/users", get(users::list).post(users::create))
         .route(

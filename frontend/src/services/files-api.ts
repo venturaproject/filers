@@ -413,9 +413,13 @@ export const filesApi = {
   },
 
   /** POST /api/v1/jobs — upload files and start a batch over them. */
-  createBatch(files: File[]): Promise<{ job_id: string }> {
+  createBatch(
+    files: File[],
+    output?: { to: ConvertTarget; transform?: TransformSpec },
+  ): Promise<{ job_id: string }> {
     const form = new FormData()
     files.forEach((f) => form.append('file', f))
+    if (output) form.append('output', JSON.stringify(output))
     return axios
       .post<{ job_id: string }>(endpoints.files.jobs, form, MULTIPART)
       .then((r) => r.data)
