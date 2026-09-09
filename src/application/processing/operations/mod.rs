@@ -5,6 +5,7 @@
 pub mod convert;
 pub mod diff;
 pub mod generate;
+pub mod pipeline;
 pub mod profile;
 pub mod transform;
 pub mod validate;

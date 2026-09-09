@@ -400,3 +400,95 @@ pub async fn diff(
 
     Ok(Json(json!({ "report": report, "timings": timings })))
 }
+
+// ── pipeline ────────────────────────────────────────────────────────────────
+
+/// POST /api/process/pipeline?<parse opts> — multipart `pipeline` (JSON) +
+/// `file`. Runs the steps in order; returns the transformed data as JSON, or a
+/// file when the last step is `convert`, or 422 with the step reports when a
+/// `validate` step fails.
+pub async fn pipeline(
+    State(state): State<Arc<AppState>>,
+    principal: ApiPrincipal,
+    Query(query): Query<ProcessQuery>,
+    multipart: Multipart,
+) -> AppResult<Response> {
+    use crate::application::processing::operations::pipeline as pl;
+
+    authorize(&state, &principal, "files:write", true).await?;
+
+    let mp = read_multipart(&state, multipart).await?;
+    let spec: pl::Pipeline = serde_json::from_str(
+        &mp.field_string("pipeline")
+            .ok_or_else(|| AppError::BadRequest("missing `pipeline` field".into()))?,
+    )
+    .map_err(|e| AppError::BadRequest(format!("invalid pipeline: {e}")))?;
+    let (fname, bytes) = mp
+        .file("file")
+        .ok_or_else(|| AppError::BadRequest("missing `file` field".into()))?;
+
+    let upload = Upload {
+        filename: fname.to_string(),
+        bytes: bytes.to_vec(),
+        upload_ms: 0,
+    };
+    let filename = upload.filename.clone();
+    let parsed = parse_full(
+        &state,
+        &principal,
+        "pipeline",
+        upload,
+        query.full_scan_options(),
+    )
+    .await?;
+    let parse_timings = parsed.timings.clone();
+
+    let started = Instant::now();
+    let outcome = pl::run(parsed, &spec)?;
+    let mut timings = parse_timings;
+    timings.convert_ms = started.elapsed().as_millis();
+    timings.total_ms = timings.upload_ms + timings.parse_ms + timings.convert_ms;
+
+    let (rows, cols) = match &outcome {
+        pl::Outcome::Data { file, .. } => (file.stats.returned_rows, file.stats.columns),
+        pl::Outcome::File { .. } | pl::Outcome::Rejected { .. } => (0, 0),
+    };
+    trace_ok(
+        &state,
+        filename.clone(),
+        "pipeline",
+        &principal,
+        rows,
+        cols,
+        timings.clone(),
+    )
+    .await;
+    if let Some(client_id) = principal.client_id() {
+        state.api_clients.record_pages(client_id, 1).await;
+    }
+
+    match outcome {
+        pl::Outcome::Rejected { steps } => Ok((
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "error": "validation failed", "steps": steps })),
+        )
+            .into_response()),
+        pl::Outcome::File {
+            bytes,
+            target,
+            steps: _,
+        } => Ok(attachment(
+            target.content_type(),
+            &format!("{}.{}", stem(&filename), target.extension()),
+            bytes,
+        )),
+        pl::Outcome::Data { file, steps } => Ok(Json(json!({
+            "columns": file.columns,
+            "data": file.data,
+            "stats": file.stats,
+            "steps": steps,
+            "timings": timings,
+        }))
+        .into_response()),
+    }
+}

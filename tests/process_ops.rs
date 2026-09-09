@@ -266,6 +266,109 @@ async fn diff_requires_a_key() {
 }
 
 #[tokio::test]
+async fn pipeline_validates_then_transforms_then_converts() {
+    let mut app = TestApp::new();
+    let pipeline = serde_json::json!({
+        "steps": [
+            { "op": "validate", "schema": { "columns": { "id": { "required": true } } } },
+            { "op": "transform", "spec": { "select": ["id", "age"], "filter": { "age": { "gte": 30 } } } },
+            { "op": "convert", "to": "csv" }
+        ]
+    })
+    .to_string();
+
+    let r = app
+        .post_files_key(
+            "/api/process/pipeline",
+            KEY,
+            &[
+                (
+                    "pipeline",
+                    "p.json",
+                    "application/json",
+                    pipeline.as_bytes(),
+                ),
+                ("file", "p.csv", OCTET, people_csv()),
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(
+        r.headers.get(header::CONTENT_TYPE).unwrap(),
+        "text/csv; charset=utf-8"
+    );
+    let text = r.text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0].trim(), "id,age");
+    assert_eq!(lines.len(), 3); // header + ages 34 and 200
+}
+
+#[tokio::test]
+async fn pipeline_stops_with_422_on_validation_failure() {
+    let mut app = TestApp::new();
+    let pipeline = serde_json::json!({
+        "steps": [
+            { "op": "validate", "schema": { "columns": { "email": { "regex": "^\\S+@\\S+$" } } } },
+            { "op": "convert", "to": "json" }
+        ]
+    })
+    .to_string();
+
+    let r = app
+        .post_files_key(
+            "/api/process/pipeline",
+            KEY,
+            &[
+                (
+                    "pipeline",
+                    "p.json",
+                    "application/json",
+                    pipeline.as_bytes(),
+                ),
+                ("file", "p.csv", OCTET, people_csv()), // has "not-an-email"
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(r.json["error"], "validation failed");
+    let steps = r.json["steps"].as_array().unwrap();
+    assert_eq!(steps[0]["op"], "validate");
+    assert_eq!(steps[0]["valid"], false);
+}
+
+#[tokio::test]
+async fn pipeline_without_a_terminal_step_returns_json() {
+    let mut app = TestApp::new();
+    let pipeline =
+        serde_json::json!({ "steps": [ { "op": "profile" }, { "op": "transform", "spec": { "limit": 1 } } ] })
+            .to_string();
+    let r = app
+        .post_files_key(
+            "/api/process/pipeline",
+            KEY,
+            &[
+                (
+                    "pipeline",
+                    "p.json",
+                    "application/json",
+                    pipeline.as_bytes(),
+                ),
+                ("file", "p.csv", OCTET, people_csv()),
+            ],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json["stats"]["returned_rows"], 1);
+    let ops: Vec<&str> = r.json["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["op"].as_str().unwrap())
+        .collect();
+    assert_eq!(ops, ["profile", "transform"]);
+}
+
+#[tokio::test]
 async fn ops_leave_a_trace_with_the_operation_name() {
     let mut app = TestApp::new();
     app.post_file_key(

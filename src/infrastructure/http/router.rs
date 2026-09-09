@@ -37,6 +37,7 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/process/convert", post(process_ops::convert))
         .route("/api/process/transform", post(process_ops::transform))
         .route("/api/process/diff", post(process_ops::diff))
+        .route("/api/process/pipeline", post(process_ops::pipeline))
         .route("/api/generate/xlsx", post(generate::xlsx))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
