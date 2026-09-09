@@ -1,21 +1,13 @@
 import {
-  IconBarrierBlock,
-  IconBug,
   IconChecklist,
-  IconError404,
   IconLayoutDashboard,
-  IconLock,
-  IconLockAccess,
-  IconServerOff,
   IconSettings,
   IconUserCog,
   IconUsers,
   IconUpload,
-  IconShieldLock,
   IconPalette,
   IconBrowserCheck,
   IconNotification,
-  IconTool,
 } from '@tabler/icons-react'
 import { type SidebarData } from '../types'
 import FilersLogo from '../filers-logo'
@@ -49,7 +41,7 @@ export const sidebarData: SidebarData = {
           permission: 'files.process',
         },
         {
-          title: 'Trabajos batch',
+          title: 'Procesamientos',
           url: '/admin/jobs',
           icon: IconChecklist,
           permission: 'files.batch',
@@ -60,22 +52,11 @@ export const sidebarData: SidebarData = {
       title: 'Control de Acceso',
       items: [
         {
+          // Roles/Permisos are tabs within this page (AccessControlTabs).
           title: 'Usuarios',
           url: '/admin/users',
           icon: IconUsers,
-          permission: 'users.view',
-        },
-        {
-          title: 'Roles',
-          url: '/admin/roles',
-          icon: IconShieldLock,
-          permission: 'roles.view',
-        },
-        {
-          title: 'Permisos',
-          url: '/admin/permissions',
-          icon: IconLockAccess,
-          permission: 'permissions.view',
+          permission: ['users.view', 'roles.view', 'permissions.view'],
         },
       ],
     },

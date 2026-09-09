@@ -52,7 +52,7 @@ export const endpoints = {
   },
   files: {
     process:   `/api/process`,
-    jobs:      `/api/jobs`,
-    jobDetail: (id: string) => `/api/jobs/${id}`,
+    jobs:      `${API_BASE}/jobs`,
+    jobDetail: (id: string) => `${API_BASE}/jobs/${id}`,
   },
 }

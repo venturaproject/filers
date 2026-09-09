@@ -1,18 +1,29 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
+import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { AuthenticatedLayout } from '@/layouts'
 import { Main } from '@/components/layout'
-import { Badge } from '@/components/ui/badge'
+import { MetricStatCard } from '@/components/metric-stat-card'
+import { DataTable, DataTablePagination, DataTableViewOptions } from '@/components/data-table'
+import { ListFilterPopover } from '@/components/list-filter-popover'
+import { FileDropzone } from '@/components/file-dropzone'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -24,162 +35,459 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { CheckCircle2, Clock, Layers, Loader2, XCircle } from 'lucide-react'
-import { MetricStatCard } from '@/components/metric-stat-card'
-import { filesApi, type Job, type JobStatus, type ParsedSheet } from '@/services/files-api'
+import {
+  CheckCircle2,
+  Clock,
+  Layers,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Upload,
+  X,
+  XCircle,
+} from 'lucide-react'
+import { useI18n } from '@/i18n/context'
+import { useTableFilters } from '@/hooks/use-table-filters'
+import { useColumnReorder } from '@/hooks/use-column-reorder'
+import {
+  filesApi,
+  type JobOrigin,
+  type JobStatus,
+  type JobSummary,
+} from '@/services/files-api'
+import {
+  KIND_LABEL,
+  ORIGIN_LABEL,
+  STATUS_LABEL,
+  STATUS_VARIANT,
+  buildJobsColumns,
+  formatDuration,
+  jobColumnLabels,
+} from './jobs-columns'
 
-const STATUS_VARIANT: Record<JobStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
-  pending: 'outline',
-  processing: 'secondary',
-  done: 'default',
-  error: 'destructive',
-}
-
-function SheetPreview({ sheet }: { sheet: ParsedSheet }) {
-  const headers = sheet.rows.length > 0 ? Object.keys(sheet.rows[0]) : []
-  const preview = sheet.rows.slice(0, 50)
-  return (
-    <div className="overflow-x-auto max-h-64 rounded border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {headers.map((h) => <TableHead key={h} className="whitespace-nowrap text-xs">{h}</TableHead>)}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {preview.map((row, i) => (
-            <TableRow key={i}>
-              {headers.map((h) => (
-                <TableCell key={h} className="whitespace-nowrap text-xs">
-                  {row[h] == null ? <span className="text-muted-foreground">—</span> : String(row[h])}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-          {sheet.row_count > 50 && (
-            <TableRow>
-              <TableCell colSpan={headers.length} className="text-center text-muted-foreground text-xs py-1">
-                +{sheet.row_count - 50} filas más
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  )
+interface JobFilters {
+  search?: string
+  status?: string
+  origin?: string
+  page?: string
+  per_page?: string
+  [key: string]: string | undefined
 }
 
 export default function JobsPage() {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const urlFilters = Object.fromEntries(searchParams.entries()) as JobFilters
+
   const [selected, setSelected] = useState<string | null>(null)
+  const [newOpen, setNewOpen] = useState(false)
+  const [newFiles, setNewFiles] = useState<File[]>([])
+
+  const {
+    filters,
+    searchTerm,
+    navigate: navigateFilters,
+    handleSearch,
+    handlePageChange,
+    handlePerPageChange,
+    perPage,
+  } = useTableFilters<JobFilters>({
+    basePath: '/admin/jobs',
+    initialFilters: urlFilters,
+    initialPerPage: Number(urlFilters.per_page) || 20,
+  })
+
+  const page = Number(urlFilters.page) || 1
+  const currentPerPage = Number(urlFilters.per_page) || perPage
+
+  const jobsQuery = useQuery({
+    queryKey: ['batch-jobs', urlFilters],
+    queryFn: () =>
+      filesApi.listJobs({
+        page,
+        per_page: currentPerPage,
+        status: urlFilters.status,
+        origin: urlFilters.origin,
+        search: urlFilters.search,
+      }),
+    refetchInterval: (query) =>
+      query.state.data?.data.some((j) => j.status === 'pending' || j.status === 'running')
+        ? 2500
+        : false,
+  })
 
   const detailQuery = useQuery({
-    queryKey: ['file-job', selected],
+    queryKey: ['batch-job', selected],
     queryFn: () => filesApi.getJob(selected as string),
     enabled: !!selected,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'pending' || status === 'processing' ? 2000 : false
+    refetchInterval: (query) =>
+      query.state.data && ['pending', 'running'].includes(query.state.data.status) ? 2000 : false,
+  })
+
+  const upload = useMutation({
+    mutationFn: (files: File[]) => filesApi.createBatch(files),
+    onSuccess: (res) => {
+      setNewOpen(false)
+      setNewFiles([])
+      setSelected(res.job_id)
+      queryClient.invalidateQueries({ queryKey: ['batch-jobs'] })
     },
+  })
+
+  const list = jobsQuery.data
+  const jobs: JobSummary[] = list?.data ?? []
+  const stats = list?.stats
+  const total = list?.total ?? 0
+  const lastPage = list?.last_page ?? 1
+
+  const columns = buildJobsColumns()
+  const { columnOrder, columnVisibility, setColumnVisibility, handleDragStart, handleDrop } =
+    useColumnReorder(columns.map((c) => c.id as string))
+
+  const table = useReactTable({
+    data: jobs,
+    columns,
+    state: { columnOrder, columnVisibility },
+    onColumnOrderChange: () => {},
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
   })
 
   const job = detailQuery.data
 
   return (
-    <AuthenticatedLayout title="Trabajos batch">
+    <AuthenticatedLayout title="Procesamientos">
       <Main>
         <div className="grid flex-1 items-start gap-4 md:gap-8">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">Trabajos batch</h2>
-            <p className="text-muted-foreground">
-              Consulta el estado de trabajos de procesamiento en lote. Introduce el ID del trabajo para ver su resultado.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">Procesamientos</h2>
+              <p className="text-muted-foreground">
+                Trazabilidad de todo el procesamiento de archivos — subidas del panel, llamadas a
+                la API y trabajos en lote. Haz clic en una fila para ver el detalle por archivo.
+              </p>
+            </div>
+            <Button className="gap-2" onClick={() => setNewOpen(true)}>
+              <Plus className="h-4 w-4" /> Nuevo procesamiento
+            </Button>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricStatCard
+              title="En cola"
+              value={stats?.pending ?? 0}
+              subtitle="Pendientes de procesar"
+              icon={Clock}
+              sparklineColor="#f59e0b"
+            />
+            <MetricStatCard
+              title="Procesando"
+              value={stats?.running ?? 0}
+              subtitle="Ahora mismo"
+              icon={Layers}
+              sparklineColor="#6366f1"
+            />
+            <MetricStatCard
+              title="Completados"
+              value={stats?.completed ?? 0}
+              subtitle={
+                stats?.avg_ms ? `duración media ${formatDuration(stats.avg_ms)}` : 'Sin datos'
+              }
+              icon={CheckCircle2}
+              sparklineColor="#10b981"
+            />
+            <MetricStatCard
+              title="Fallidos"
+              value={stats?.failed ?? 0}
+              subtitle="Con errores"
+              icon={XCircle}
+              sparklineColor="#f87171"
+            />
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Consultar trabajo por ID</CardTitle>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-5 w-5" />
+                  <CardTitle>Historial</CardTitle>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Input
+                      placeholder={t('filter_placeholder') || 'Buscar…'}
+                      value={searchTerm}
+                      onChange={(e) => handleSearch(e.target.value)}
+                      className="w-64 pr-9"
+                    />
+                    {searchTerm && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground"
+                        onClick={() => handleSearch('')}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <ListFilterPopover
+                    groups={[
+                      {
+                        key: 'status',
+                        label: 'Estado',
+                        allLabel: 'Todos los estados',
+                        value: urlFilters.status,
+                        options: (['pending', 'running', 'completed', 'failed'] as JobStatus[]).map(
+                          (s) => ({ value: s, label: STATUS_LABEL[s] }),
+                        ),
+                        onChange: (v) =>
+                          navigateFilters({ ...filters, status: v || undefined, page: '1' }),
+                      },
+                      {
+                        key: 'origin',
+                        label: 'Origen',
+                        allLabel: 'Todos los orígenes',
+                        value: urlFilters.origin,
+                        options: (
+                          ['admin', 'api_key', 'oauth_client', 'service'] as JobOrigin[]
+                        ).map((o) => ({ value: o, label: ORIGIN_LABEL[o] })),
+                        onChange: (v) =>
+                          navigateFilters({ ...filters, origin: v || undefined, page: '1' }),
+                      },
+                    ]}
+                    onClearAll={() =>
+                      navigateFilters({
+                        ...filters,
+                        status: undefined,
+                        origin: undefined,
+                        page: '1',
+                      })
+                    }
+                  />
+                  <div className="ml-auto flex items-center gap-2">
+                    <DataTableViewOptions table={table} columnLabels={jobColumnLabels} />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-2"
+                      onClick={() => jobsQuery.refetch()}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Actualizar
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <form
-                className="flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  const id = (e.currentTarget.elements.namedItem('job_id') as HTMLInputElement).value.trim()
-                  if (id) setSelected(id)
-                }}
-              >
-                <input
-                  name="job_id"
-                  placeholder="UUID del trabajo"
-                  className="flex h-9 w-full max-w-xs rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  defaultValue={selected ?? ''}
+              <div className="overflow-x-auto">
+                <DataTable
+                  table={table}
+                  colCount={columns.length}
+                  emptyMessage={jobsQuery.isLoading ? 'Cargando…' : 'Sin trabajos todavía'}
+                  onDragStart={handleDragStart}
+                  onDrop={handleDrop}
+                  fixedColumnIds={[]}
+                  onRowClick={(j) => setSelected(j.id)}
+                  isRowActive={(j) => j.id === selected}
                 />
-                <Button type="submit" size="sm">Ver estado</Button>
-              </form>
+              </div>
             </CardContent>
+            <DataTablePagination
+              currentPage={page}
+              lastPage={lastPage}
+              perPage={currentPerPage}
+              total={total}
+              selectedCount={0}
+              onPageChange={handlePageChange}
+              onPerPageChange={handlePerPageChange}
+            />
           </Card>
-
-          {selected && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  Trabajo {selected.slice(0, 8)}…
-                  {detailQuery.isLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {job && <Badge variant={STATUS_VARIANT[job.status]}>{job.status}</Badge>}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {detailQuery.isError && (
-                  <p className="text-sm text-red-600">No se encontró el trabajo o hubo un error.</p>
-                )}
-                {job && (
-                  <>
-                    <div className="grid gap-1 text-sm">
-                      {job.filename && <p><span className="text-muted-foreground">Archivo:</span> {job.filename}</p>}
-                      <p><span className="text-muted-foreground">Creado:</span> {new Date(job.created_at).toLocaleString()}</p>
-                      {job.finished_at && (
-                        <p><span className="text-muted-foreground">Finalizado:</span> {new Date(job.finished_at).toLocaleString()}</p>
-                      )}
-                    </div>
-
-                    {job.status === 'error' && job.error && (
-                      <p className="text-sm text-red-600">{job.error}</p>
-                    )}
-
-                    {job.result && (
-                      <>
-                        <div className="flex flex-wrap gap-2 text-sm">
-                          <Badge variant="outline">{job.result.format.toUpperCase()}</Badge>
-                          <span>{job.result.stats.row_count} filas</span>
-                          <span>·</span>
-                          <span>{job.result.stats.col_count} columnas</span>
-                          {job.result.stats.sheet_count > 1 && (
-                            <><span>·</span><span>{job.result.stats.sheet_count} hojas</span></>
-                          )}
-                          <span>·</span>
-                          <span>{job.result.stats.processing_ms} ms</span>
-                        </div>
-                        {job.result.sheets.map((sheet) => (
-                          <div key={sheet.name}>
-                            <p className="text-xs font-medium text-muted-foreground mb-1">{sheet.name}</p>
-                            <SheetPreview sheet={sheet} />
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    {(job.status === 'pending' || job.status === 'processing') && (
-                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Procesando…
-                      </p>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </div>
       </Main>
+
+      <Dialog
+        open={newOpen}
+        onOpenChange={(v) => {
+          setNewOpen(v)
+          if (!v) {
+            setNewFiles([])
+            upload.reset()
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nuevo procesamiento</DialogTitle>
+            <DialogDescription>
+              Sube uno o varios archivos Excel/CSV. Se procesan en segundo plano y aparecen en
+              el historial.
+            </DialogDescription>
+          </DialogHeader>
+
+          <FileDropzone
+            value={newFiles}
+            onChange={setNewFiles}
+            multiple
+            maxSizeMb={100}
+            disabled={upload.isPending}
+          />
+
+          {upload.isError && (
+            <p className="text-sm text-destructive">
+              {(upload.error as { response?: { data?: { error?: string } } })?.response?.data
+                ?.error ?? 'No se pudo iniciar el procesamiento.'}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewOpen(false)} disabled={upload.isPending}>
+              Cancelar
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={newFiles.length === 0 || upload.isPending}
+              onClick={() => upload.mutate(newFiles)}
+            >
+              {upload.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Procesando…
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" /> Procesar {newFiles.length > 0 && `(${newFiles.length})`}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+          {detailQuery.isLoading && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+            </p>
+          )}
+          {detailQuery.isError && (
+            <p className="text-sm text-destructive">No se encontró el trabajo.</p>
+          )}
+          {job && (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2">
+                  {job.label ?? `Trabajo ${job.id.slice(0, 8)}`}
+                  <Badge variant={STATUS_VARIANT[job.status]}>{STATUS_LABEL[job.status]}</Badge>
+                </SheetTitle>
+                <SheetDescription className="font-mono text-xs">{job.id}</SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-6 space-y-5">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">Modo</dt>
+                    <dd>{KIND_LABEL[job.kind]}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Origen</dt>
+                    <dd>
+                      {ORIGIN_LABEL[job.origin]}
+                      {job.actor && (
+                        <span className="block text-xs text-muted-foreground">{job.actor}</span>
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Archivos</dt>
+                    <dd>
+                      {job.files_processed} ok
+                      {job.files_failed > 0 && ` · ${job.files_failed} con error`} / {job.files_total}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Filas totales</dt>
+                    <dd className="tabular-nums">{job.total_rows.toLocaleString('es-ES')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Duración</dt>
+                    <dd className="tabular-nums">{formatDuration(job.duration_ms)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Creado</dt>
+                    <dd>{new Date(job.created_at).toLocaleString('es-ES')}</dd>
+                  </div>
+                  {job.completed_at && (
+                    <div>
+                      <dt className="text-muted-foreground">Finalizado</dt>
+                      <dd>{new Date(job.completed_at).toLocaleString('es-ES')}</dd>
+                    </div>
+                  )}
+                </dl>
+
+                {job.error && (
+                  <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                    {job.error}
+                  </p>
+                )}
+
+                {['pending', 'running'].includes(job.status) && (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Procesando…
+                  </p>
+                )}
+
+                {job.results.length > 0 && (
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Resultado por archivo</p>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Archivo</TableHead>
+                            <TableHead className="text-right">Filas</TableHead>
+                            <TableHead className="text-right">Columnas</TableHead>
+                            <TableHead className="text-right">Tiempo</TableHead>
+                            <TableHead>Estado</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {job.results.map((r) => (
+                            <TableRow key={r.file}>
+                              <TableCell className="max-w-[220px] truncate font-medium">
+                                {r.file}
+                                {r.error && (
+                                  <span className="block text-xs font-normal text-destructive">
+                                    {r.error}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {r.rows.toLocaleString('es-ES')}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">{r.columns}</TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatDuration(r.elapsed_ms)}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={r.status === 'ok' ? 'default' : 'destructive'}>
+                                  {r.status === 'ok' ? 'OK' : 'Error'}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </AuthenticatedLayout>
   )
 }

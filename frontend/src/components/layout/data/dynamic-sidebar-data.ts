@@ -2,11 +2,9 @@ import {
   IconBrowserCheck,
   IconChecklist,
   IconLayoutDashboard,
-  IconLockAccess,
   IconNotification,
   IconPalette,
   IconSettings,
-  IconShieldLock,
   IconUpload,
   IconUserCog,
   IconUsers,
@@ -47,7 +45,7 @@ export const DynamicSidebarData = () => {
             permission: 'files.process',
           },
           {
-            title: 'Trabajos batch',
+            title: 'Procesamientos',
             url: '/admin/jobs',
             icon: IconChecklist,
             permission: 'files.batch',
@@ -58,22 +56,12 @@ export const DynamicSidebarData = () => {
         title: t('access_control'),
         items: [
           {
+            // Roles and Permissions live as tabs inside this page
+            // (see AccessControlTabs), not as separate nav entries.
             title: t('users'),
             url: '/admin/users',
             icon: IconUsers,
-            permission: 'users.view',
-          },
-          {
-            title: 'Roles',
-            url: '/admin/roles',
-            icon: IconShieldLock,
-            permission: 'roles.view',
-          },
-          {
-            title: 'Permisos',
-            url: '/admin/permissions',
-            icon: IconLockAccess,
-            permission: 'permissions.view',
+            permission: ['users.view', 'roles.view', 'permissions.view'],
           },
         ],
       },

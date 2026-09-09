@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
   <rect width="1024" height="1024" rx="200" fill="#6366f1"/>
-  <text x="512" y="700" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-size="700" font-weight="800" fill="white" text-anchor="middle">F</text>
+  <!-- F letter -->
+  <text x="380" y="680" font-family="'Inter','Helvetica Neue',Arial,sans-serif" font-size="580" font-weight="800" fill="white">F</text>
+  <!-- Lightning bolt -->
+  <polygon points="660,120 580,460 640,460 540,900 760,500 680,500 780,120" fill="#fbbf24" opacity="0.95"/>
 </svg>

@@ -38,9 +38,9 @@ export interface CreateApiClientResponse {
 }
 
 export const AVAILABLE_SCOPES = [
-  { value: 'ocr:write', label: 'OCR — enviar documentos' },
-  { value: 'ocr:read',  label: 'OCR — consultar resultados' },
-  { value: '*',         label: 'Acceso completo (*)' },
+  { value: 'files:write', label: 'Procesar archivos (POST /api/process)' },
+  { value: 'files:read',  label: 'Consultar trabajos (GET /api/jobs)' },
+  { value: '*',           label: 'Acceso completo (*)' },
 ]
 
 export const apiClientsApi = {

@@ -11,7 +11,7 @@ import { useI18n } from '@/i18n/context'
  */
 export function AccessControlTabs() {
   const { t } = useI18n()
-  const { can } = usePermission()
+  const { checkPermission } = usePermission()
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
@@ -25,7 +25,7 @@ export function AccessControlTabs() {
     { value: 'users', label: t('users') || 'Usuarios', permission: 'users.view' },
     { value: 'roles', label: t('roles') || 'Roles', permission: 'roles.view' },
     { value: 'permissions', label: t('permissions') || 'Permisos', permission: 'permissions.view' },
-  ].filter((tab) => can(tab.permission))
+  ].filter((tab) => checkPermission(tab.permission))
 
   if (tabs.length < 2) return null
 

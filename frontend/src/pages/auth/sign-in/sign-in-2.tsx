@@ -1,4 +1,4 @@
-const TradivelLogo = '/logo-tradivel-compact-light.svg'
+const FilersLogo = '/logo-filers-icon.svg'
 import { DocumentTitle } from '@/components/document-title'
 import { UserAuthForm } from './components/user-auth-form'
 import { useI18n } from '@/i18n/context'
@@ -25,11 +25,11 @@ export default function SignIn2({
           </div>
 
           <img
-            src={TradivelLogo}
+            src={FilersLogo}
             className='relative m-auto'
             width={301}
-            height={60}
-            alt='Ocrer'
+            height={301}
+            alt='Filers'
           />
 
           <div className='relative z-20 mt-auto'>
