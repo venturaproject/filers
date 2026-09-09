@@ -74,7 +74,33 @@ pub struct ParseStats {
     pub total_rows: u64,
     pub returned_rows: u64,
     pub columns: u32,
+    /// Wall-clock time inside the parser. Kept for compatibility; the same value
+    /// is `timings.parse_ms`, which also carries the phase breakdown.
     pub elapsed_ms: u128,
+}
+
+/// Where the time went. All values are milliseconds.
+///
+/// `*_ms` are wall-clock; `parse_cpu_ms` is CPU time (user+system) actually
+/// consumed process-wide during the parse. When `parse_ms` is far above
+/// `parse_cpu_ms` the host was starved of CPU — the work itself is cheap and the
+/// wall time is contention, not processing.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Timings {
+    /// Opening the workbook / building the CSV reader.
+    pub open_ms: u128,
+    /// Decompressing + parsing the sheet (xlsx/xls/ods) or streaming rows (csv).
+    pub read_ms: u128,
+    /// Converting cells to JSON values (0 when only counting rows).
+    pub convert_ms: u128,
+    /// Total wall-clock time inside the parser (`open + read + convert` + glue).
+    pub parse_ms: u128,
+    /// CPU time consumed during the parse (all threads, whole process).
+    pub parse_cpu_ms: u128,
+    /// Reading the uploaded bytes off the socket. Set by the HTTP handler.
+    pub upload_ms: u128,
+    /// End-to-end time the HTTP handler observed. Set by the HTTP handler.
+    pub total_ms: u128,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +116,8 @@ pub struct ParsedFile {
     pub data: Vec<Vec<serde_json::Value>>,
     pub stats: ParseStats,
     pub errors: Vec<ParseError>,
+    #[serde(default)]
+    pub timings: Timings,
 }
 
 // ── Async job (for batch processing) ─────────────────────────────────────────
@@ -176,6 +204,9 @@ pub struct FileResult {
     pub elapsed_ms: u128,
     pub status: String,
     pub error: Option<String>,
+    /// Phase breakdown for this file, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timings: Option<Timings>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,7 +257,7 @@ impl Job {
         filename: String,
         origin: JobOrigin,
         actor: Option<String>,
-        outcome: Result<(u64, u32, u128), (String, u128)>,
+        outcome: Result<(u64, u32, Timings), (String, u128)>,
     ) -> Self {
         let mut job = Job::new(1, JobKind::Sync, origin, actor);
         job.label = Some(filename.clone());
@@ -234,20 +265,22 @@ impl Job {
         job.completed_at = Some(now);
         // Backdate `created_at` so `duration_ms()` reflects the parse time.
         let elapsed = match &outcome {
-            Ok((_, _, ms)) | Err((_, ms)) => *ms,
+            Ok((_, _, t)) => t.parse_ms,
+            Err((_, ms)) => *ms,
         };
         job.created_at = now - chrono::Duration::milliseconds(elapsed.min(i64::MAX as u128) as i64);
         match outcome {
-            Ok((rows, columns, elapsed_ms)) => {
+            Ok((rows, columns, timings)) => {
                 job.status = JobStatus::Completed;
                 job.files_processed = 1;
                 job.results = vec![FileResult {
                     file: filename,
                     rows,
                     columns,
-                    elapsed_ms,
+                    elapsed_ms: timings.parse_ms,
                     status: "ok".into(),
                     error: None,
+                    timings: Some(timings),
                 }];
             }
             Err((error, elapsed_ms)) => {
@@ -261,6 +294,7 @@ impl Job {
                     elapsed_ms,
                     status: "error".into(),
                     error: Some(error),
+                    timings: None,
                 }];
             }
         }

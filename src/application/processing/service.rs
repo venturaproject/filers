@@ -145,6 +145,7 @@ impl ProcessingService {
                             elapsed_ms: t.elapsed().as_millis(),
                             status: "ok".into(),
                             error: None,
+                            timings: Some(parsed.timings),
                         },
                         Err(e) => FileResult {
                             file: file_name,
@@ -153,6 +154,7 @@ impl ProcessingService {
                             elapsed_ms: t.elapsed().as_millis(),
                             status: "error".into(),
                             error: Some(e.to_string()),
+                            timings: None,
                         },
                     };
                     (idx, result)

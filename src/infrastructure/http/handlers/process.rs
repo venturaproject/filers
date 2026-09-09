@@ -69,6 +69,7 @@ pub async fn handle(
 
         // Stream the field, enforcing the size limit as bytes arrive instead of
         // buffering the whole (potentially huge) body first.
+        let upload_start = std::time::Instant::now();
         let mut data: Vec<u8> = Vec::new();
         while let Some(chunk) = field
             .chunk()
@@ -83,12 +84,19 @@ pub async fn handle(
             }
             data.extend_from_slice(&chunk);
         }
+        let upload_ms = upload_start.elapsed().as_millis();
 
         let started = std::time::Instant::now();
-        let outcome = state
+        let mut outcome = state
             .processing
             .parse_upload(filename.clone(), data, opts.clone())
             .await;
+
+        // Fill in the timings the parser can't see from inside.
+        if let Ok(parsed) = &mut outcome {
+            parsed.timings.upload_ms = upload_ms;
+            parsed.timings.total_ms = upload_ms + parsed.timings.parse_ms;
+        }
 
         // Leave a trace record so this shows up in "Procesamientos".
         let (origin, actor) = principal.origin();
@@ -97,7 +105,7 @@ pub async fn handle(
             origin,
             actor,
             match &outcome {
-                Ok(r) => Ok((r.stats.total_rows, r.stats.columns, r.stats.elapsed_ms)),
+                Ok(r) => Ok((r.stats.total_rows, r.stats.columns, r.timings.clone())),
                 Err(e) => Err((e.to_string(), started.elapsed().as_millis())),
             },
         );

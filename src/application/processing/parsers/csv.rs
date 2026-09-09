@@ -3,14 +3,17 @@ use std::time::Instant;
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::application::processing::timing::process_cpu_time;
 use crate::domain::processing::entities::{
-    FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile,
+    FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile, Timings,
 };
 use crate::errors::{AppError, AppResult};
 
 pub fn parse(bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
     let start = Instant::now();
+    let cpu_start = process_cpu_time();
 
+    let t_open = Instant::now();
     let delimiter = opts
         .delimiter
         .map(|c| c as u8)
@@ -24,6 +27,8 @@ pub fn parse(bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
 
     let mut reader = builder.from_reader(bytes);
     let mut records = reader.records();
+    let open_ms = t_open.elapsed().as_millis();
+    let t_read = Instant::now();
 
     // skip leading rows
     for _ in 0..opts.skip_rows {
@@ -70,12 +75,15 @@ pub fn parse(bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
             }),
         }
     }
+    let read_ms = t_read.elapsed().as_millis();
 
     // Type the buffered cells in parallel.
+    let t_convert = Instant::now();
     let data: Vec<Vec<Value>> = windowed
         .par_iter()
         .map(|rec| rec.iter().map(parse_cell).collect())
         .collect();
+    let convert_ms = t_convert.elapsed().as_millis();
 
     // if no headers, generate A/B/C... based on the widest row seen
     let columns = if columns.is_empty() {
@@ -85,17 +93,26 @@ pub fn parse(bytes: &[u8], opts: &ParseOptions) -> AppResult<ParsedFile> {
     };
     let column_count = columns.len() as u32;
 
+    let parse_ms = start.elapsed().as_millis();
     Ok(ParsedFile {
         format: FileFormat::Csv,
         stats: ParseStats {
             total_rows,
             returned_rows: data.len() as u64,
             columns: column_count,
-            elapsed_ms: start.elapsed().as_millis(),
+            elapsed_ms: parse_ms,
         },
         columns,
         data,
         errors,
+        timings: Timings {
+            open_ms,
+            read_ms,
+            convert_ms,
+            parse_ms,
+            parse_cpu_ms: process_cpu_time().saturating_sub(cpu_start).as_millis(),
+            ..Default::default()
+        },
     })
 }
 
@@ -161,6 +178,10 @@ fn empty_result(_opts: &ParseOptions, start: Instant) -> ParsedFile {
             elapsed_ms: start.elapsed().as_millis(),
         },
         errors: vec![],
+        timings: Timings {
+            parse_ms: start.elapsed().as_millis(),
+            ..Default::default()
+        },
     }
 }
 

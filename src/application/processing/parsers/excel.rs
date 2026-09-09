@@ -5,14 +5,17 @@ use calamine::{CellType, DataType, Range, Reader, ReaderRef, open_workbook_auto_
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::application::processing::timing::process_cpu_time;
 use crate::domain::processing::entities::{
-    FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile,
+    FileFormat, ParseError, ParseOptions, ParseStats, ParsedFile, Timings,
 };
 use crate::errors::{AppError, AppResult};
 
 pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult<ParsedFile> {
     let start = Instant::now();
+    let cpu_start = process_cpu_time();
 
+    let t_open = Instant::now();
     let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes))
         .map_err(|e| AppError::ParseError(format!("Cannot open workbook: {e}")))?;
 
@@ -21,23 +24,31 @@ pub fn parse(bytes: &[u8], format: FileFormat, opts: &ParseOptions) -> AppResult
         .get(opts.sheet)
         .ok_or_else(|| AppError::BadRequest(format!("Sheet {} not found", opts.sheet)))?
         .clone();
+    let open_ms = t_open.elapsed().as_millis();
 
     // `xlsx`/`xlsb` expose a borrowed `Range<DataRef>` — cells point straight at
     // the shared-string table instead of `worksheet_range` cloning all 1M+ of
     // them into owned `String`s first. `xls`/`ods` only have the owned path.
+    let t_read = Instant::now();
+    let mut timings = Timings {
+        open_ms,
+        ..Default::default()
+    };
     match format {
         FileFormat::Xlsx => {
             let range = workbook
                 .worksheet_range_ref(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
-            Ok(assemble(&range, format, opts, start))
+            timings.read_ms = t_read.elapsed().as_millis();
+            Ok(assemble(&range, format, opts, start, cpu_start, timings))
         }
         // `xls` / `ods` only expose the owned `Range<Data>` path.
         _ => {
             let range = workbook
                 .worksheet_range(&sheet_name)
                 .map_err(|e| AppError::ParseError(format!("Cannot read sheet: {e}")))?;
-            Ok(assemble(&range, format, opts, start))
+            timings.read_ms = t_read.elapsed().as_millis();
+            Ok(assemble(&range, format, opts, start, cpu_start, timings))
         }
     }
 }
@@ -49,6 +60,8 @@ fn assemble<D: CellType + DataType + Sync>(
     format: FileFormat,
     opts: &ParseOptions,
     start: Instant,
+    cpu_start: std::time::Duration,
+    mut timings: Timings,
 ) -> ParsedFile {
     let width = range.width();
     let all_rows: Vec<&[D]> = range.rows().collect();
@@ -76,6 +89,7 @@ fn assemble<D: CellType + DataType + Sync>(
     let total_rows = body.len() as u64;
 
     // Batch jobs only keep the stats, so skip building `data` entirely.
+    let t_convert = Instant::now();
     let (data, errors) = if opts.count_only {
         (Vec::new(), Vec::new())
     } else {
@@ -86,6 +100,9 @@ fn assemble<D: CellType + DataType + Sync>(
         };
         convert_rows(&body[lo..hi], header_offset + lo as u64)
     };
+    timings.convert_ms = t_convert.elapsed().as_millis();
+    timings.parse_ms = start.elapsed().as_millis();
+    timings.parse_cpu_ms = process_cpu_time().saturating_sub(cpu_start).as_millis();
 
     ParsedFile {
         format,
@@ -93,11 +110,12 @@ fn assemble<D: CellType + DataType + Sync>(
             total_rows,
             returned_rows: data.len() as u64,
             columns: column_count,
-            elapsed_ms: start.elapsed().as_millis(),
+            elapsed_ms: timings.parse_ms,
         },
         columns,
         data,
         errors,
+        timings,
     }
 }
 
@@ -208,6 +226,10 @@ fn empty_result(format: FileFormat, start: Instant) -> ParsedFile {
             elapsed_ms: start.elapsed().as_millis(),
         },
         errors: vec![],
+        timings: Timings {
+            parse_ms: start.elapsed().as_millis(),
+            ..Default::default()
+        },
     }
 }
 
