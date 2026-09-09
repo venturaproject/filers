@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { AuthenticatedLayout } from '@/layouts'
@@ -7,27 +7,10 @@ import { Main } from '@/components/layout'
 import { MetricStatCard } from '@/components/metric-stat-card'
 import { DataTable, DataTablePagination, DataTableViewOptions } from '@/components/data-table'
 import { ListFilterPopover } from '@/components/list-filter-popover'
-import { FileDropzone } from '@/components/file-dropzone'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   Sheet,
   SheetContent,
@@ -49,9 +32,7 @@ import {
   Download,
   Layers,
   Loader2,
-  Plus,
   RefreshCw,
-  Upload,
   X,
   XCircle,
 } from 'lucide-react'
@@ -60,7 +41,6 @@ import { useTableFilters } from '@/hooks/use-table-filters'
 import { useColumnReorder } from '@/hooks/use-column-reorder'
 import {
   filesApi,
-  type ConvertTarget,
   type JobOrigin,
   type JobStatus,
   type JobSummary,
@@ -87,15 +67,10 @@ interface JobFilters {
 
 export default function JobsPage() {
   const { t } = useI18n()
-  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const urlFilters = Object.fromEntries(searchParams.entries()) as JobFilters
 
   const [selected, setSelected] = useState<string | null>(null)
-  const [newOpen, setNewOpen] = useState(false)
-  const [newFiles, setNewFiles] = useState<File[]>([])
-  const [outputOn, setOutputOn] = useState(false)
-  const [outputFormat, setOutputFormat] = useState<ConvertTarget>('csv')
 
   const {
     filters,
@@ -138,18 +113,6 @@ export default function JobsPage() {
       query.state.data && ['pending', 'running'].includes(query.state.data.status) ? 2000 : false,
   })
 
-  const upload = useMutation({
-    mutationFn: (files: File[]) =>
-      filesApi.createBatch(files, outputOn ? { to: outputFormat } : undefined),
-    onSuccess: (res) => {
-      setNewOpen(false)
-      setNewFiles([])
-      setOutputOn(false)
-      setSelected(res.job_id)
-      queryClient.invalidateQueries({ queryKey: ['batch-jobs'] })
-    },
-  })
-
   const downloadResult = useMutation({
     mutationFn: (name: string) => filesApi.downloadJobResult(selected as string, name),
   })
@@ -187,17 +150,13 @@ export default function JobsPage() {
     <AuthenticatedLayout title="Procesamientos">
       <Main>
         <div className="grid flex-1 items-start gap-4 md:gap-8">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">Procesamientos</h2>
-              <p className="text-muted-foreground">
-                Trazabilidad de todo el procesamiento de archivos — subidas del panel, llamadas a
-                la API y trabajos en lote. Haz clic en una fila para ver el detalle por archivo.
-              </p>
-            </div>
-            <Button className="gap-2" onClick={() => setNewOpen(true)}>
-              <Plus className="h-4 w-4" /> Nuevo procesamiento
-            </Button>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Procesamientos</h2>
+            <p className="text-muted-foreground">
+              Trazabilidad de todas las llamadas a la API de procesamiento — parseos, perfilados,
+              validaciones, conversiones, transformaciones y trabajos en lote. Haz clic en una
+              fila para ver el detalle por archivo.
+            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -334,95 +293,6 @@ export default function JobsPage() {
           </Card>
         </div>
       </Main>
-
-      <Dialog
-        open={newOpen}
-        onOpenChange={(v) => {
-          setNewOpen(v)
-          if (!v) {
-            setNewFiles([])
-            upload.reset()
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Nuevo procesamiento</DialogTitle>
-            <DialogDescription>
-              Sube uno o varios archivos Excel/CSV. Se procesan en segundo plano y aparecen en
-              el historial.
-            </DialogDescription>
-          </DialogHeader>
-
-          <FileDropzone
-            value={newFiles}
-            onChange={setNewFiles}
-            multiple
-            maxSizeMb={100}
-            disabled={upload.isPending}
-          />
-
-          <div className="rounded-md border p-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <Checkbox
-                checked={outputOn}
-                onCheckedChange={(c) => setOutputOn(!!c)}
-                disabled={upload.isPending}
-              />
-              Generar un archivo convertido por entrada
-            </label>
-            {outputOn && (
-              <div className="mt-3 flex items-center gap-2 pl-6 text-sm">
-                <span className="text-muted-foreground">Formato</span>
-                <Select
-                  value={outputFormat}
-                  onValueChange={(v) => setOutputFormat(v as ConvertTarget)}
-                >
-                  <SelectTrigger className="h-8 w-[120px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(['csv', 'json', 'ndjson', 'xlsx'] as ConvertTarget[]).map((t) => (
-                      <SelectItem key={t} value={t}>{t.toUpperCase()}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">
-                  descargable en el detalle del trabajo
-                </span>
-              </div>
-            )}
-          </div>
-
-          {upload.isError && (
-            <p className="text-sm text-destructive">
-              {(upload.error as { response?: { data?: { error?: string } } })?.response?.data
-                ?.error ?? 'No se pudo iniciar el procesamiento.'}
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewOpen(false)} disabled={upload.isPending}>
-              Cancelar
-            </Button>
-            <Button
-              className="gap-2"
-              disabled={newFiles.length === 0 || upload.isPending}
-              onClick={() => upload.mutate(newFiles)}
-            >
-              {upload.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Procesando…
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" /> Procesar {newFiles.length > 0 && `(${newFiles.length})`}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Sheet open={!!selected} onOpenChange={(v) => !v && setSelected(null)}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">

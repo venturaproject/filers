@@ -1,7 +1,5 @@
 import {
   IconChecklist,
-  IconGitCompare,
-  IconRoute,
   IconLayoutDashboard,
   IconSettings,
   IconUserCog,
@@ -37,21 +35,9 @@ export const sidebarData: SidebarData = {
       title: 'Procesamiento',
       items: [
         {
-          title: 'Banco de trabajo',
+          title: 'Procesar archivo',
           url: '/admin/process',
           icon: IconUpload,
-          permission: 'files.process',
-        },
-        {
-          title: 'Comparar',
-          url: '/admin/compare',
-          icon: IconGitCompare,
-          permission: 'files.process',
-        },
-        {
-          title: 'Pipeline',
-          url: '/admin/pipeline',
-          icon: IconRoute,
           permission: 'files.process',
         },
         {
