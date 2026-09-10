@@ -171,7 +171,7 @@ impl MemoryRoleRepository {
 impl RoleRepository for MemoryRoleRepository {
     async fn list(&self) -> AppResult<Vec<Role>> {
         let mut items: Vec<Role> = self.store.iter().map(|r| r.clone()).collect();
-        items.sort_by(|a, b| a.id.cmp(&b.id));
+        items.sort_by_key(|a| a.id);
         Ok(items)
     }
 

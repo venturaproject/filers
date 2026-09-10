@@ -25,7 +25,7 @@ impl MemoryUserRepository {
 impl UserRepository for MemoryUserRepository {
     async fn list(&self) -> AppResult<Vec<User>> {
         let mut users: Vec<User> = self.by_id.iter().map(|u| u.clone()).collect();
-        users.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        users.sort_by_key(|a| a.created_at);
         Ok(users)
     }
 

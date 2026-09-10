@@ -33,7 +33,7 @@ impl Default for MemoryApiClientRepository {
 impl ApiClientRepository for MemoryApiClientRepository {
     async fn list(&self) -> AppResult<Vec<ApiClient>> {
         let mut items: Vec<ApiClient> = self.store.iter().map(|c| c.clone()).collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(items)
     }
 

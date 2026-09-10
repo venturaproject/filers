@@ -71,7 +71,7 @@ impl JobRepository for MemoryJobRepository {
 
     async fn list(&self) -> AppResult<Vec<Job>> {
         let mut jobs: Vec<Job> = self.store.iter().map(|r| r.clone()).collect();
-        jobs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        jobs.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         Ok(jobs)
     }
 
