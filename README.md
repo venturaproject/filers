@@ -55,10 +55,13 @@ the response, offloading the heavy lifting to Rust.
   a third (session cookie) for the admin panel
 - Per-client scopes, rate limits and monthly page quotas
 - Refresh-token rotation with reuse detection (revokes the token family)
-- Optional Postgres persistence (users, sessions, API clients, tokens, job history)
+- Optional Postgres persistence (users, sessions, API clients, tokens, job
+  history, RBAC catalogue); optional Redis-shared rate limiters
 - Full job history + a monitoring dashboard (throughput, p95, error rate, 24h timeline)
-- Gated OpenAPI spec + Scalar docs UI
-- nginx as the single entrypoint (dev and prod)
+- Gated OpenAPI spec + Scalar **and** Swagger UI
+- Liveness / readiness probes, graceful shutdown, startup job reconciliation
+- nginx as the single entrypoint (dev and prod); CI on every push (fmt · clippy
+  `-D warnings` · test · `cargo audit` · frontend lint/build)
 
 **Performance**
 
@@ -88,9 +91,9 @@ src/
   bootstrap.rs    Config → AppState → Router (shared by main + tests)
 ```
 
-**Stack:** Rust 2024 · axum 0.7 · tokio · sqlx 0.8 (Postgres) · calamine ·
-rayon · argon2 · utoipa. Frontend: React · Vite · TanStack Query/Table ·
-shadcn/ui · Tailwind · recharts.
+**Stack:** Rust 2024 · axum 0.7 · tokio · sqlx 0.8 (Postgres) · redis · calamine
+· quick-xml · rayon · argon2 · utoipa. Frontend: React · Vite · TanStack
+Query/Table · shadcn/ui · Tailwind · recharts.
 
 ---
 
@@ -100,7 +103,7 @@ Requires Docker.
 
 ```bash
 cp .env.example .env
-make up                       # nginx + api + frontend + postgres, hot reload
+make up                       # nginx + api + frontend + postgres + redis, hot reload
 ```
 
 Everything is behind one entrypoint: **http://localhost:8085**
@@ -109,7 +112,7 @@ Everything is behind one entrypoint: **http://localhost:8085**
 | --------------- | ---------------------------------------- |
 | `/`             | React admin panel                       |
 | `/api/*`        | Rust API                                 |
-| `/api/docs`     | OpenAPI / Scalar docs (dev only by default) |
+| `/api/docs` · `/api/swagger` | Scalar / Swagger UI (dev only by default) |
 | `/health`       | liveness (process is up)                |
 | `/health/ready` | readiness (DB reachable) — `503` when not |
 
@@ -150,7 +153,7 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `TRUST_PROXY` | `true` | trust `X-Forwarded-For` / `X-Real-IP` (true behind the bundled nginx) |
 | `AUTH_RATE_LIMIT` | `10/60` | per-IP throttle for `/api/v1/auth/*` and `/api/ext/auth/*` (`<n>/<seconds>`) — Redis-backed when `REDIS_URL` is set |
 | `API_RATE_LIMIT` | `120/60` | per-IP throttle for every other `/api` route; `off` disables |
-| `ENABLE_API_DOCS` | – | serve `/api/openapi.json` + `/api/docs`. Unset → on outside production, off in production. `true`/`false` forces it |
+| `ENABLE_API_DOCS` | – | serve `/api/openapi.json` + `/api/docs` (Scalar) + `/api/swagger`. Unset → on outside production, off in production. `true`/`false` forces it |
 | `APP_NAME` | `Filers` | public name at `GET /api/v1/config` |
 | `SESSION_COOKIE_SECURE` | `false` | add `Secure` to the session cookie + emit HSTS (enable behind HTTPS) |
 | `SEED_USER_EMAIL` / `_PASSWORD` / `_NAME` / `_API_KEY` | `admin@filers.test` / `admin1234` / `Admin` / first `API_KEYS` | seeded admin account |
@@ -397,11 +400,12 @@ to force it on (allowed in production, but the startup log warns).
 
 ## Persistence
 
-| Store | `DATABASE_URL` unset | `DATABASE_URL` set |
+| Store | default (URL unset) | with the backing service |
 | --- | --- | --- |
-| users, sessions, API clients, client tokens | in-memory (lost on restart) | **Postgres** |
-| job / processing history | in-memory (cap 512, oldest evicted) | **Postgres** (30-day retention) |
-| roles & permissions | in-memory (seeded catalogue) | **Postgres** (seeded on first run, then editable and durable) |
+| users, sessions, API clients, client tokens | in-memory (lost on restart) | **Postgres** (`DATABASE_URL`) |
+| job / processing history | in-memory (cap 512, oldest evicted) | **Postgres** (`DATABASE_URL`, 30-day retention) |
+| roles & permissions | in-memory (seeded catalogue) | **Postgres** (`DATABASE_URL`; seeded once, then editable and durable) |
+| per-IP rate-limit counters | process-local (`DashMap`) | **Redis** (`REDIS_URL`; shared across replicas) |
 
 The RBAC catalogue (`resource.action` permissions + the `admin` / `user` roles)
 is seeded on first connect when the tables are empty, then persists — so edits
@@ -473,7 +477,7 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
 warnings` · test · `cargo audit`) and the frontend job (oxlint · tsc · build)
 on every push and PR.
 
-**Tests:** 79 (unit + integration), driven through the router with
+**Tests:** 80 (unit + integration), driven through the router with
 `tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
 fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
 (`cargo test --release --test perf -- --ignored --nocapture`, reads a root
@@ -512,21 +516,26 @@ cp .env.example .env
 # edit: APP_ENV=production, strong SEED_USER_PASSWORD, real API_KEYS,
 #       strong POSTGRES_PASSWORD, CORS_ALLOWED_ORIGINS=https://your.domain,
 #       SEED_DEMO_USERS=false
-make prod-up      # postgres + api + nginx (80/443), only nginx exposed
+make prod-up      # postgres + redis + api + nginx (80/443), only nginx exposed
 ```
 
-`compose.prod.yml` runs three services: a bundled **`postgres:17-alpine`**
-(named volume `postgres-data`, internal-only), the **API** (internal-only,
-health-checked, waits for Postgres to be healthy), and **nginx** — the only
-thing with published ports. The nginx image ships a self-signed cert so HTTPS
+`compose.prod.yml` runs four services: a bundled **`postgres:17-alpine`** (named
+volume `postgres-data`), a bundled **`redis:7-alpine`** (rate-limiter state, no
+persistence), the **API** (health-checked, waits for both to be healthy), and
+**nginx** — the only one with published ports. Postgres, Redis and the API sit
+on the internal network only. The nginx image ships a self-signed cert so HTTPS
 works immediately; mount a real one at `/etc/nginx/certs/{fullchain,privkey}.pem`
 to replace it. The API runs with `TRUST_PROXY=true`, `SESSION_COOKIE_SECURE=true`
-and `BATCH_BASE_DIR=/data/uploads`.
+and `BATCH_BASE_DIR=/data/uploads`, and drains in-flight requests on SIGTERM.
 
-`DATABASE_URL` is derived from `POSTGRES_USER` / `POSTGRES_PASSWORD` /
-`POSTGRES_DB`. To use an **external** managed Postgres instead, set
-`DATABASE_URL` explicitly in `.env` (the bundled `postgres` service is then
-unused).
+`DATABASE_URL` and `REDIS_URL` are derived from `POSTGRES_*` and the `redis`
+service. To use an **external** managed Postgres or Redis instead, set the URL
+explicitly in `.env` (the bundled service is then unused).
+
+**Scaling to multiple API replicas:** users / sessions / API-clients / tokens /
+jobs / RBAC are all in Postgres, and the rate limiters are shared via Redis, so
+replicas are stateless. The one exception is batch **result files** on local
+disk (`BATCH_BASE_DIR`) — mount shared storage or run batch on a single replica.
 
 ---
 
@@ -535,7 +544,7 @@ unused).
 ```
 .
 ├── src/                       Rust API (see Architecture)
-├── migrations/                sqlx migrations (auth, refresh-reuse, jobs)
+├── migrations/                sqlx migrations (auth, refresh-reuse, jobs, rbac)
 ├── tests/                     integration tests + fixtures + perf harness
 ├── frontend/                  React admin panel (Vite)
 ├── infrastructure/
@@ -543,8 +552,10 @@ unused).
 │   ├── Dockerfile.dev         API dev image (cargo-watch)
 │   ├── frontend/Dockerfile.dev
 │   └── nginx/                 nginx.conf (prod, TLS) + nginx.dev.conf + Dockerfile
-├── compose.dev.yml            nginx + api + frontend + postgres, hot reload
-├── compose.prod.yml           nginx (TLS) + api, api internal-only
+├── .github/workflows/ci.yml   fmt · clippy · test · audit · frontend
+├── .cargo/audit.toml          cargo-audit ignore list (with rationale)
+├── compose.dev.yml            nginx + api + frontend + postgres + redis, hot reload
+├── compose.prod.yml           nginx (TLS) + api + postgres + redis, only nginx exposed
 ├── Makefile
 └── .env.example
 ```
