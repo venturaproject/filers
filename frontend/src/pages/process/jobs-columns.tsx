@@ -13,6 +13,11 @@ export const OPERATION_LABEL: Record<Operation, string> = {
   transform: 'Transformar',
   pipeline: 'Pipeline',
   batch: 'Lote',
+  pdf_info: 'PDF · info',
+  pdf_text: 'PDF · texto',
+  pdf_forms: 'PDF · formulario',
+  pdf_split: 'PDF · dividir',
+  pdf_merge: 'PDF · unir',
 }
 
 export const KIND_LABEL: Record<JobKind, string> = {
