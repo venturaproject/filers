@@ -1,5 +1,5 @@
-# Production topology: postgres + api + nginx. nginx is the only thing exposed;
-# Postgres and the Rust API are reachable only on the internal compose network.
+# Production topology: postgres + redis + api + nginx. nginx is the only thing
+# exposed; Postgres, Redis and the Rust API sit on the internal network only.
 #
 #   docker compose -f compose.prod.yml up -d --build
 #
@@ -29,6 +29,19 @@ services:
       retries: 5
       start_period: 10s
 
+  # Shared rate-limiter state across API replicas. Unused if REDIS_URL is unset.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    expose:
+      - "6379"          # internal only
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   api:
     build:
       context: .
@@ -37,13 +50,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file: .env
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
       PORT: 8000
       BATCH_BASE_DIR: /data/uploads
-      # Use the bundled Postgres unless .env sets an external DATABASE_URL.
+      # Use the bundled Postgres / Redis unless .env sets external URLs.
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-filers}:${POSTGRES_PASSWORD:-filers}@postgres:5432/${POSTGRES_DB:-filers}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # Behind the nginx proxy: trust its forwarded headers, mark cookies Secure,
       # emit HSTS. Lock CORS to your real origin(s) in .env.
       TRUST_PROXY: "true"

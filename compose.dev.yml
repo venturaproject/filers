@@ -30,12 +30,27 @@ services:
       timeout: 3s
       retries: 10
 
+  # Shared rate-limiter state. The API only uses it when REDIS_URL is set;
+  # compose points it here by default.
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build:
       context: .
       dockerfile: infrastructure/Dockerfile.dev
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     # Only watch the Rust sources — not frontend/, uploads/, etc.
     command: cargo watch -w src -w Cargo.toml -w Cargo.lock -x run
@@ -51,8 +66,9 @@ services:
     env_file: .env
     environment:
       RUST_LOG: ${RUST_LOG:-rust_api=info,tower_http=info}
-      # Point the app at the bundled Postgres unless .env overrides it.
+      # Point the app at the bundled Postgres / Redis unless .env overrides them.
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-filers}:${POSTGRES_PASSWORD:-filers}@postgres:5432/${POSTGRES_DB:-filers}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
 
   frontend:
     build:

@@ -153,6 +153,14 @@ fn check(config: &Config) {
             .map(mask_url)
             .unwrap_or_else(|| "(unset — in-memory)".into())
     );
+    println!(
+        "redis_url             {}",
+        config
+            .redis_url
+            .as_deref()
+            .map(mask_url)
+            .unwrap_or_else(|| "(unset — process-local rate limits)".into())
+    );
     println!("api_keys             {} configured", config.api_keys.len());
     println!("max_file_size_mb     {}", config.max_file_size_mb);
     println!("max_cells            {}", config.max_cells);

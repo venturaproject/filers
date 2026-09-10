@@ -40,7 +40,7 @@ pub async fn token(
     ClientIp(ip): ClientIp,
     Json(body): Json<TokenRequest>,
 ) -> AppResult<Json<Value>> {
-    state.auth_limiter.check(&format!("ext-token:{ip}"))?;
+    state.auth_limiter.check(&format!("ext-token:{ip}")).await?;
     let grant = state
         .api_clients
         .issue_tokens(&body.client_id, &body.client_secret)
@@ -65,7 +65,10 @@ pub async fn refresh(
     ClientIp(ip): ClientIp,
     Json(body): Json<RefreshRequest>,
 ) -> AppResult<Json<Value>> {
-    state.auth_limiter.check(&format!("ext-refresh:{ip}"))?;
+    state
+        .auth_limiter
+        .check(&format!("ext-refresh:{ip}"))
+        .await?;
     let grant = state.api_clients.refresh(&body.refresh_token).await?;
     Ok(Json(grant.to_json()))
 }

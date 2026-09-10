@@ -53,7 +53,7 @@ pub async fn global_rate_limit(
             || path.starts_with("/api/v1/auth/")
             || path.starts_with("/api/ext/auth/");
         if !exempt {
-            limiter.check(&format!("req:{ip}"))?;
+            limiter.check(&format!("req:{ip}")).await?;
         }
     }
     Ok(next.run(req).await)

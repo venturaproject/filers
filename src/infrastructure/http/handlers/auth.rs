@@ -42,7 +42,7 @@ pub async fn login(
     ClientIp(ip): ClientIp,
     Json(body): Json<LoginBody>,
 ) -> AppResult<Response> {
-    state.auth_limiter.check(&format!("login:{ip}"))?;
+    state.auth_limiter.check(&format!("login:{ip}")).await?;
 
     let (user, token) = state.auth.login(&body.login, &body.password).await?;
 

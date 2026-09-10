@@ -41,6 +41,9 @@ pub struct Config {
     /// Postgres connection string. When set, users / sessions / API clients /
     /// client tokens are persisted there; otherwise they live in memory.
     pub database_url: Option<String>,
+    /// Redis connection string (`REDIS_URL`). When set, the per-IP rate limiters
+    /// are shared across replicas via Redis; otherwise they are process-local.
+    pub redis_url: Option<String>,
     /// Default URL to POST a batch job's final state to on completion.
     pub webhook_url: Option<String>,
     /// HMAC-SHA256 key for the `X-Filers-Signature` webhook header.
@@ -151,6 +154,10 @@ impl Config {
                 .unwrap_or(false),
             production,
             database_url: env::var("DATABASE_URL")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            redis_url: env::var("REDIS_URL")
                 .ok()
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty()),
@@ -345,6 +352,7 @@ mod tests {
             seed_demo_users: false,
             production: false,
             database_url: None,
+            redis_url: None,
             webhook_url: None,
             webhook_secret: None,
             enable_api_docs: false,

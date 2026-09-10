@@ -66,11 +66,9 @@ fn memory_rbac() -> (Arc<dyn RoleRepository>, Arc<dyn PermissionRepository>) {
     (roles, Arc::new(permissions))
 }
 
-/// Build the full application state with **in-memory** repositories.
-/// Used by the test suite and as the fallback when `DATABASE_URL` is unset.
-pub fn build_state(config: Config) -> Arc<AppState> {
+fn memory_stores(config: &Config) -> Stores {
     let (roles, permissions) = memory_rbac();
-    let stores = Stores {
+    Stores {
         users: Arc::new(MemoryUserRepository::new(default_seed_users(
             &config.seed_user,
             config.seed_demo_users,
@@ -82,16 +80,50 @@ pub fn build_state(config: Config) -> Arc<AppState> {
         roles,
         permissions,
         db_pool: None,
-    };
-    assemble_state(config, stores)
+    }
+}
+
+/// Connect a Redis [`ConnectionManager`] when `REDIS_URL` is set. A bad URL or
+/// an unreachable server is logged and treated as "not configured" — the rate
+/// limiters then run process-local.
+async fn connect_redis(url: Option<&str>) -> Option<redis::aio::ConnectionManager> {
+    let url = url?;
+    match redis::Client::open(url) {
+        Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+            Ok(cm) => {
+                tracing::info!("rate limiting: Redis (shared)");
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "REDIS_URL is set but the connection failed ({e}) — rate limiting is process-local"
+                );
+                None
+            }
+        },
+        Err(e) => {
+            tracing::error!("REDIS_URL is invalid ({e}) — rate limiting is process-local");
+            None
+        }
+    }
+}
+
+/// Build the full application state with **in-memory** repositories.
+/// Used by the test suite and as the fallback when `DATABASE_URL` is unset.
+pub fn build_state(config: Config) -> Arc<AppState> {
+    let stores = memory_stores(&config);
+    assemble_state(config, stores, None)
 }
 
 /// Build the application state, using Postgres for the auth-critical stores when
-/// `DATABASE_URL` is set (running migrations and seeding the admin on first run),
-/// otherwise falling back to [`build_state`].
+/// `DATABASE_URL` is set (running migrations and seeding the admin on first run)
+/// and Redis for the rate limiters when `REDIS_URL` is set.
 pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> {
+    let redis = connect_redis(config.redis_url.as_deref()).await;
+
     let Some(url) = config.database_url.clone() else {
-        return Ok(build_state(config));
+        let stores = memory_stores(&config);
+        return Ok(assemble_state(config, stores, redis));
     };
 
     let pool = postgres::connect(&url).await?;
@@ -121,12 +153,16 @@ pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> 
         db_pool: Some(pool),
     };
     tracing::info!("persistence: Postgres");
-    Ok(assemble_state(config, stores))
+    Ok(assemble_state(config, stores, redis))
 }
 
-/// Everything downstream of the swappable repos: the services and the auth
-/// rate limiter.
-fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
+/// Everything downstream of the swappable repos: the services and the rate
+/// limiters (Redis-backed when `redis` is `Some`).
+fn assemble_state(
+    config: Config,
+    stores: Stores,
+    redis: Option<redis::aio::ConnectionManager>,
+) -> Arc<AppState> {
     let jobs = stores.jobs;
     let roles = stores.roles;
     let permissions = stores.permissions;
@@ -156,8 +192,15 @@ fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
             .and_then(RateLimit::parse),
         config.ext_default_monthly_page_quota,
     ));
-    let auth_limiter = RateLimiter::new(config.auth_rate_limit.0, config.auth_rate_limit.1);
-    let api_limiter = config.api_rate_limit.map(|(n, w)| RateLimiter::new(n, w));
+    let auth_limiter = RateLimiter::build(
+        redis.clone(),
+        config.auth_rate_limit.0,
+        config.auth_rate_limit.1,
+        "rl:auth",
+    );
+    let api_limiter = config
+        .api_rate_limit
+        .map(|(n, w)| RateLimiter::build(redis.clone(), n, w, "rl:api"));
 
     Arc::new(AppState {
         config,
@@ -280,6 +323,7 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         seed_demo_users: true,
         production: false,
         database_url: None,
+        redis_url: None,
         webhook_url: None,
         webhook_secret: None,
         // Exercise the docs routes in integration tests.

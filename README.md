@@ -144,10 +144,11 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `BATCH_BASE_DIR` | `./uploads` | root for `POST /api/process/batch`; `..` and absolute paths rejected |
 | `DATABASE_URL` | derived from `POSTGRES_*` | Postgres for users/sessions/API-clients/tokens/**jobs**. Unset *and* no bundled Postgres → in-memory (lost on restart) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `filers` / `filers` / `filers` | credentials for the bundled Postgres (both compose files); ignored when `DATABASE_URL` is external. **Change the password for real deployments** |
+| `REDIS_URL` | derived (bundled Redis) | shares the per-IP rate limiters across replicas; unset → process-local. Fails open if Redis is unreachable |
 | `WEBHOOK_URL` / `WEBHOOK_SECRET` | – | default batch-completion webhook; secret enables `X-Filers-Signature: sha256=<hmac>` |
 | `CORS_ALLOWED_ORIGINS` | `*` | comma-separated origins; `*` in prod disables credentialed cookie CORS |
 | `TRUST_PROXY` | `true` | trust `X-Forwarded-For` / `X-Real-IP` (true behind the bundled nginx) |
-| `AUTH_RATE_LIMIT` | `10/60` | per-IP throttle for `/api/v1/auth/*` and `/api/ext/auth/*` (`<n>/<seconds>`) |
+| `AUTH_RATE_LIMIT` | `10/60` | per-IP throttle for `/api/v1/auth/*` and `/api/ext/auth/*` (`<n>/<seconds>`) — Redis-backed when `REDIS_URL` is set |
 | `API_RATE_LIMIT` | `120/60` | per-IP throttle for every other `/api` route; `off` disables |
 | `ENABLE_API_DOCS` | – | serve `/api/openapi.json` + `/api/docs`. Unset → on outside production, off in production. `true`/`false` forces it |
 | `APP_NAME` | `Filers` | public name at `GET /api/v1/config` |
@@ -426,7 +427,8 @@ server also drains in-flight requests on SIGTERM / Ctrl-C before exiting.
 - Argon2id passwords; opaque HttpOnly / SameSite=Lax session cookies; SHA-256
   hashed API tokens; constant-time key comparison
 - Per-IP rate limiting on auth endpoints **and** (app-level) every other `/api`
-  route; nginx `limit_req` on top
+  route; nginx `limit_req` on top. Shared across replicas via Redis when
+  `REDIS_URL` is set, process-local otherwise (fails open if Redis is down)
 - Refresh-token single-use + **reuse detection** → revokes the token family
 - Suspended / inactive users are locked out and their sessions dropped on
   status/password/role change
