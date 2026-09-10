@@ -101,4 +101,76 @@ impl JobRepository for MemoryJobRepository {
         }
         Ok(n)
     }
+
+    async fn fail_interrupted(&self) -> AppResult<u64> {
+        let now = Utc::now();
+        let mut n = 0u64;
+        for mut entry in self.store.iter_mut() {
+            if matches!(entry.status, JobStatus::Pending | JobStatus::Running) {
+                entry.status = JobStatus::Failed;
+                entry.error = Some("interrupted by a server restart".into());
+                if entry.completed_at.is_none() {
+                    entry.completed_at = Some(now);
+                }
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::domain::processing::entities::{JobKind, JobOrigin};
+
+    fn job(status: JobStatus) -> Job {
+        let mut j = Job::new(1, JobKind::Batch, "batch", JobOrigin::Service, None, None);
+        j.status = status;
+        j
+    }
+
+    #[tokio::test]
+    async fn fail_interrupted_only_touches_non_terminal_jobs() {
+        let repo = MemoryJobRepository::new();
+        for s in [
+            JobStatus::Pending,
+            JobStatus::Running,
+            JobStatus::Completed,
+            JobStatus::Failed,
+        ] {
+            repo.create(job(s)).await.unwrap();
+        }
+
+        assert_eq!(repo.fail_interrupted().await.unwrap(), 2);
+
+        let statuses: Vec<_> = repo
+            .list()
+            .await
+            .unwrap()
+            .iter()
+            .map(|j| j.status)
+            .collect();
+        assert_eq!(
+            statuses.iter().filter(|s| **s == JobStatus::Failed).count(),
+            3
+        );
+        assert!(!statuses.contains(&JobStatus::Pending));
+        assert!(!statuses.contains(&JobStatus::Running));
+        // idempotent
+        assert_eq!(repo.fail_interrupted().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn prune_terminal_dry_run_does_not_delete() {
+        let repo = MemoryJobRepository::new();
+        repo.create(job(JobStatus::Completed)).await.unwrap();
+
+        let future = Utc::now() + chrono::Duration::days(1);
+        assert_eq!(repo.prune_terminal(future, true).await.unwrap(), 1);
+        assert_eq!(repo.list().await.unwrap().len(), 1);
+        assert_eq!(repo.prune_terminal(future, false).await.unwrap(), 1);
+        assert_eq!(repo.list().await.unwrap().len(), 0);
+    }
 }

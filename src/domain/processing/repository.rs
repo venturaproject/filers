@@ -16,4 +16,9 @@ pub trait JobRepository: Send + Sync {
     /// always kept). With `dry_run`, count the matches without deleting.
     /// Returns the number removed (or that would be removed).
     async fn prune_terminal(&self, cutoff: DateTime<Utc>, dry_run: bool) -> AppResult<u64>;
+
+    /// Mark every `pending` / `running` job as `failed` — called once at
+    /// startup so a job whose in-flight task was lost to a restart doesn't
+    /// stay "running" forever. Returns the count reconciled.
+    async fn fail_interrupted(&self) -> AppResult<u64>;
 }

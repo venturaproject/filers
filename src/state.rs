@@ -22,4 +22,7 @@ pub struct AppState {
     /// Per-IP throttle for every other `/api` route. `None` disables it
     /// (`API_RATE_LIMIT=off`) — e.g. when a trusted proxy already limits.
     pub api_limiter: Option<RateLimiter>,
+    /// The Postgres pool, when persistence is enabled. Used by the readiness
+    /// probe (`GET /health/ready`); `None` in the in-memory configuration.
+    pub db_pool: Option<sqlx::PgPool>,
 }

@@ -125,7 +125,9 @@ pub fn build(state: Arc<AppState>) -> Router {
         // OAuth2 client-credentials flow for external consumers (public)
         .route("/api/ext/auth/token", post(ext_auth::token))
         .route("/api/ext/auth/refresh", post(ext_auth::refresh))
-        .route("/health", get(health));
+        // Liveness (is the process up) and readiness (can it serve — DB reachable).
+        .route("/health", get(health))
+        .route("/health/ready", get(readiness));
 
     // OpenAPI spec + docs UIs. Gated by `ENABLE_API_DOCS`
     // (default: on outside production, off in production).
@@ -206,4 +208,39 @@ fn build_cors(origins: &[String]) -> CorsLayer {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+/// Readiness probe: 200 only when the app can actually serve requests. With
+/// Postgres that means the pool answers `SELECT 1`; in the in-memory
+/// configuration there is nothing external to check, so it is always ready.
+async fn readiness(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    match &state.db_pool {
+        None => (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({ "status": "ready" })),
+        )
+            .into_response(),
+        Some(pool) => match sqlx::query("SELECT 1").execute(pool).await {
+            Ok(_) => (
+                StatusCode::OK,
+                axum::Json(serde_json::json!({ "status": "ready" })),
+            )
+                .into_response(),
+            Err(e) => {
+                tracing::warn!("readiness: database unreachable: {e}");
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    axum::Json(
+                        serde_json::json!({ "status": "unavailable", "reason": "database" }),
+                    ),
+                )
+                    .into_response()
+            }
+        },
+    }
 }

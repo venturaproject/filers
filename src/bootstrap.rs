@@ -53,6 +53,8 @@ struct Stores {
     jobs: Arc<dyn JobRepository>,
     roles: Arc<dyn RoleRepository>,
     permissions: Arc<dyn PermissionRepository>,
+    /// The Postgres pool when persistence is on; `None` for in-memory.
+    db_pool: Option<sqlx::PgPool>,
 }
 
 /// Build the seeded in-memory RBAC catalogue (roles reference permissions by id).
@@ -79,6 +81,7 @@ pub fn build_state(config: Config) -> Arc<AppState> {
         jobs: Arc::new(MemoryJobRepository::new()),
         roles,
         permissions,
+        db_pool: None,
     };
     assemble_state(config, stores)
 }
@@ -100,14 +103,22 @@ pub async fn build_state_async(config: Config) -> anyhow::Result<Arc<AppState>> 
         Arc::new(postgres::PgPermissionRepository::new(pool.clone()));
     postgres::seed_rbac_if_missing(permissions.as_ref(), roles.as_ref()).await?;
 
+    let jobs: Arc<dyn JobRepository> = Arc::new(postgres::PgJobRepository::new(pool.clone()));
+    match jobs.fail_interrupted().await {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!("reconciled {n} job(s) left running by a previous restart"),
+        Err(e) => tracing::error!("job reconciliation failed: {e}"),
+    }
+
     let stores = Stores {
         users,
         sessions: Arc::new(postgres::PgSessionRepository::new(pool.clone())),
         clients: Arc::new(postgres::PgApiClientRepository::new(pool.clone())),
         tokens: Arc::new(postgres::PgClientTokenRepository::new(pool.clone())),
-        jobs: Arc::new(postgres::PgJobRepository::new(pool)),
+        jobs,
         roles,
         permissions,
+        db_pool: Some(pool),
     };
     tracing::info!("persistence: Postgres");
     Ok(assemble_state(config, stores))
@@ -157,6 +168,7 @@ fn assemble_state(config: Config, stores: Stores) -> Arc<AppState> {
         api_clients,
         auth_limiter,
         api_limiter,
+        db_pool: stores.db_pool,
     })
 }
 

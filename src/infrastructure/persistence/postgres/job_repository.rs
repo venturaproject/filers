@@ -149,4 +149,21 @@ impl JobRepository for PgJobRepository {
             Ok(res.rows_affected())
         }
     }
+
+    async fn fail_interrupted(&self) -> AppResult<u64> {
+        // Patch the lifted column and the two JSON keys `list()` reads back.
+        let res = sqlx::query(
+            "UPDATE jobs SET \
+                status = 'failed', \
+                completed_at = COALESCE(completed_at, now()), \
+                data = jsonb_set( \
+                         jsonb_set(data, '{status}', '\"failed\"'::jsonb, true), \
+                         '{error}', to_jsonb('interrupted by a server restart'::text), true) \
+             WHERE status IN ('pending', 'running')",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(map_err)?;
+        Ok(res.rows_affected())
+    }
 }

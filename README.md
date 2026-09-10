@@ -105,12 +105,13 @@ make up                       # nginx + api + frontend + postgres, hot reload
 
 Everything is behind one entrypoint: **http://localhost:8085**
 
-| Path        | Serves                                   |
-| ----------- | ---------------------------------------- |
-| `/`         | React admin panel                       |
-| `/api/*`    | Rust API                                 |
-| `/api/docs` | OpenAPI / Scalar docs (dev only by default) |
-| `/health`   | liveness check                          |
+| Path            | Serves                                   |
+| --------------- | ---------------------------------------- |
+| `/`             | React admin panel                       |
+| `/api/*`        | Rust API                                 |
+| `/api/docs`     | OpenAPI / Scalar docs (dev only by default) |
+| `/health`       | liveness (process is up)                |
+| `/health/ready` | readiness (DB reachable) — `503` when not |
 
 Default admin login: **admin@filers.test** / **admin1234**
 Default service key: **dev-key** (sent as `x-api-key`)
@@ -411,6 +412,11 @@ Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:17-alpine` and
 point the API at it by default; set `DATABASE_URL` in `.env` to use an external
 instance instead.
 
+On startup any job left `pending` / `running` by a previous crash or restart is
+reconciled to `failed` ("interrupted by a server restart") — a batch task that
+was mid-flight when the process died no longer shows as running forever. The
+server also drains in-flight requests on SIGTERM / Ctrl-C before exiting.
+
 ---
 
 ## Security
@@ -461,7 +467,11 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
   'cd /app && pnpm exec oxlint src && pnpm exec tsc --noEmit && pnpm build'
 ```
 
-**Tests:** 74 (unit + integration), driven through the router with
+**CI:** `.github/workflows/ci.yml` runs the backend job (fmt · clippy `-D
+warnings` · test · `cargo audit`) and the frontend job (oxlint · tsc · build)
+on every push and PR.
+
+**Tests:** 79 (unit + integration), driven through the router with
 `tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
 fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
 (`cargo test --release --test perf -- --ignored --nocapture`, reads a root
