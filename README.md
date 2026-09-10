@@ -20,6 +20,7 @@ the response, offloading the heavy lifting to Rust.
 - [Configuration](#configuration)
 - [Authentication](#authentication)
 - [Processing API](#processing-api)
+- [PDF](#pdf)
 - [Batch jobs](#batch-jobs)
 - [Admin API](#admin-api-session-cookie)
 - [OpenAPI docs](#openapi-docs)
@@ -58,7 +59,7 @@ the response, offloading the heavy lifting to Rust.
 - Optional Postgres persistence (users, sessions, API clients, tokens, job
   history, RBAC catalogue); optional Redis-shared rate limiters
 - Full job history + a monitoring dashboard (throughput, p95, error rate, 24h timeline)
-- Gated OpenAPI spec + Scalar **and** Swagger UI
+- PDF: info / text / forms / split / merge (pure Rust). Gated OpenAPI spec + Scalar and Swagger UI
 - Liveness / readiness probes, graceful shutdown, startup job reconciliation
 - nginx as the single entrypoint (dev and prod)
 
@@ -82,7 +83,7 @@ implementations swapped in at startup when `DATABASE_URL` is set.
 ```
 src/
   domain/         entities + repository traits (auth, rbac, api_client, processing)
-  application/    services + use-cases (parsers, operations, notifier, timing)
+  application/    services + use-cases (parsers, operations, pdf, notifier)
   infrastructure/
     http/         axum router, handlers, middleware, OpenAPI doc
     persistence/  memory/ + postgres/ implementations of the repo traits
@@ -320,6 +321,40 @@ JSON body. `rows` as arrays (with `columns`) or objects.
 
 ---
 
+## PDF
+
+Pure-Rust (lopdf) — no native dependency. Text extraction is best-effort and
+does **not** OCR: a scanned PDF yields little. Same multipart contract, scopes
+(`files:read` for info/text/forms, `files:write` for split/merge) and job
+tracing as the spreadsheet endpoints.
+
+### `POST /api/pdf/info`
+
+Field `file`. → page count, per-page size (points), metadata (title/author/…),
+PDF version, `encrypted`, `has_form`.
+
+### `POST /api/pdf/text?pages=1-3`
+
+Field `file`. `pages` is a `1-3,7` selector (omit for all). →
+`{ pages: [{ page, text, chars }], truncated }`.
+
+### `POST /api/pdf/forms`
+
+Field `file`. → `{ has_form, fields: [{ name, kind, value, label }] }` — AcroForm
+fields (`kind` = text / button / choice / signature), hierarchical names as
+`parent.child`.
+
+### `POST /api/pdf/split?pages=1-3[&each=true]`
+
+Field `file`. Returns the trimmed PDF, or — with `each=true` — a zip of
+one-page PDFs.
+
+### `POST /api/pdf/merge`
+
+Repeat the `file` part two or more times → the concatenated PDF.
+
+---
+
 ## Batch jobs
 
 ### `POST /api/process/batch`
@@ -384,8 +419,8 @@ itself; that's the API's job.
 
 When `ENABLE_API_DOCS` is on:
 
-- `GET /api/openapi.json` — the spec (public processing API only; `/api/v1/*`
-  admin routes are excluded)
+- `GET /api/openapi.json` — the spec (public processing + PDF API; the
+  `/api/v1/*` admin routes are excluded)
 - `GET /api/docs` — [Scalar](https://scalar.com) UI
 - `GET /api/swagger` — Swagger UI (classic "try it out" forms)
 
@@ -472,7 +507,7 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
   'cd /app && pnpm exec oxlint src && pnpm exec tsc --noEmit && pnpm build'
 ```
 
-**Tests:** 80 (unit + integration), driven through the router with
+**Tests:** 89 (unit + integration), driven through the router with
 `tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
 fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
 (`cargo test --release --test perf -- --ignored --nocapture`, reads a root

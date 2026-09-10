@@ -12,8 +12,8 @@ use tower_http::{
 };
 
 use super::handlers::{
-    api_clients, auth, batch, dashboard, ext_auth, generate, jobs, jobs_admin, meta, permissions,
-    process, process_ops, roles, users,
+    api_clients, auth, batch, dashboard, ext_auth, generate, jobs, jobs_admin, meta, pdf,
+    permissions, process, process_ops, roles, users,
 };
 use super::middleware::security;
 use super::openapi::ApiDoc;
@@ -66,6 +66,12 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/process/diff", post(process_ops::diff))
         .route("/api/process/pipeline", post(process_ops::pipeline))
         .route("/api/generate/xlsx", post(generate::xlsx))
+        // PDF inspection + page manipulation
+        .route("/api/pdf/info", post(pdf::info))
+        .route("/api/pdf/text", post(pdf::text))
+        .route("/api/pdf/forms", post(pdf::forms))
+        .route("/api/pdf/split", post(pdf::split))
+        .route("/api/pdf/merge", post(pdf::merge))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
         .route("/api/jobs/:id/results", get(jobs::results))

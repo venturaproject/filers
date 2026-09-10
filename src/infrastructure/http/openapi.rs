@@ -65,6 +65,14 @@ pub struct DiffForm {
     pub b: String,
 }
 
+/// `multipart/form-data` body: two or more PDFs to concatenate (repeat `file`).
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct MergeForm {
+    #[schema(value_type = Vec<String>, format = Binary)]
+    pub file: Vec<String>,
+}
+
 /// JSON body for `POST /api/process/batch`.
 #[derive(utoipa::ToSchema)]
 #[allow(dead_code)]
@@ -146,6 +154,11 @@ impl Modify for SecurityAddon {
         crate::infrastructure::http::handlers::process_ops::diff,
         crate::infrastructure::http::handlers::process_ops::pipeline,
         crate::infrastructure::http::handlers::generate::xlsx,
+        crate::infrastructure::http::handlers::pdf::info,
+        crate::infrastructure::http::handlers::pdf::text,
+        crate::infrastructure::http::handlers::pdf::forms,
+        crate::infrastructure::http::handlers::pdf::split,
+        crate::infrastructure::http::handlers::pdf::merge,
         crate::infrastructure::http::handlers::batch::handle,
         crate::infrastructure::http::handlers::jobs::handle,
         crate::infrastructure::http::handlers::jobs::results,
@@ -155,13 +168,21 @@ impl Modify for SecurityAddon {
     ),
     components(schemas(
         ParsedFile, ParseOptions, ParseStats, ParseError, Timings, FileFormat,
-        UploadForm, SchemaFileForm, SpecFileForm, PipelineFileForm, DiffForm,
+        UploadForm, SchemaFileForm, SpecFileForm, PipelineFileForm, DiffForm, MergeForm,
         BatchBody, TokenBody, RefreshBody,
         crate::application::processing::operations::generate::XlsxRequest,
         crate::application::processing::operations::generate::XlsxOptions,
+        crate::application::processing::pdf::info::PdfInfo,
+        crate::application::processing::pdf::info::Metadata,
+        crate::application::processing::pdf::info::PageSize,
+        crate::application::processing::pdf::text::TextResult,
+        crate::application::processing::pdf::text::PageText,
+        crate::application::processing::pdf::forms::FormResult,
+        crate::application::processing::pdf::forms::Field,
     )),
     tags(
         (name = "processing", description = "Synchronous operations on an uploaded file"),
+        (name = "pdf", description = "PDF inspection and page manipulation"),
         (name = "batch", description = "Asynchronous multi-file jobs"),
         (name = "jobs", description = "Job status and downloadable results"),
         (name = "auth", description = "OAuth2 client-credentials for external clients"),

@@ -63,6 +63,10 @@ sha2   = "0.10"
 base64 = "0.22"
 libc   = "0.2"
 
+# PDF processing (/api/pdf/*)
+lopdf       = "0.45"
+pdf-extract = "0.12"
+
 [dev-dependencies]
 tower           = { version = "0.5", features = ["util"] }
 http-body-util  = "0.1"
