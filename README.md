@@ -60,8 +60,7 @@ the response, offloading the heavy lifting to Rust.
 - Full job history + a monitoring dashboard (throughput, p95, error rate, 24h timeline)
 - Gated OpenAPI spec + Scalar **and** Swagger UI
 - Liveness / readiness probes, graceful shutdown, startup job reconciliation
-- nginx as the single entrypoint (dev and prod); CI on every push (fmt · clippy
-  `-D warnings` · test · `cargo audit` · frontend lint/build)
+- nginx as the single entrypoint (dev and prod)
 
 **Performance**
 
@@ -473,10 +472,6 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
   'cd /app && pnpm exec oxlint src && pnpm exec tsc --noEmit && pnpm build'
 ```
 
-**CI:** `.github/workflows/ci.yml` runs the backend job (fmt · clippy `-D
-warnings` · test · `cargo audit`) and the frontend job (oxlint · tsc · build)
-on every push and PR.
-
 **Tests:** 80 (unit + integration), driven through the router with
 `tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
 fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
@@ -552,7 +547,6 @@ disk (`BATCH_BASE_DIR`) — mount shared storage or run batch on a single replic
 │   ├── Dockerfile.dev         API dev image (cargo-watch)
 │   ├── frontend/Dockerfile.dev
 │   └── nginx/                 nginx.conf (prod, TLS) + nginx.dev.conf + Dockerfile
-├── .github/workflows/ci.yml   fmt · clippy · test · audit · frontend
 ├── .cargo/audit.toml          cargo-audit ignore list (with rationale)
 ├── compose.dev.yml            nginx + api + frontend + postgres + redis, hot reload
 ├── compose.prod.yml           nginx (TLS) + api + postgres + redis, only nginx exposed
