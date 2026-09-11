@@ -1,7 +1,7 @@
-/target
+/backend/target
 .env
-/uploads/*
-!/uploads/.gitkeep
+/backend/uploads/*
+!/backend/uploads/.gitkeep
 
 # Local test spreadsheet (real data — do not commit)
-/input.xlsx
+/backend/input.xlsx

@@ -81,7 +81,7 @@ Domain-driven layout, in-memory repositories behind trait boundaries, Postgres
 implementations swapped in at startup when `DATABASE_URL` is set.
 
 ```
-src/
+backend/src/
   domain/         entities + repository traits (auth, rbac, api_client, processing)
   application/    services + use-cases (parsers, operations, pdf, notifier)
   infrastructure/
@@ -127,8 +127,8 @@ curl -s -X POST "http://localhost:8085/api/process?max_rows=5" \
   -F "file=@your-file.xlsx" | jq
 ```
 
-Run without Docker: `cargo run` (needs a reachable `DATABASE_URL`, or leave it
-unset for the in-memory path) and `cd frontend && pnpm dev`.
+Run without Docker: `cd backend && cargo run` (needs a reachable `DATABASE_URL`,
+or leave it unset for the in-memory path) and `cd frontend && pnpm dev`.
 
 ---
 
@@ -446,7 +446,7 @@ is seeded on first connect when the tables are empty, then persists — so edits
 through `/api/v1/roles` and `/api/v1/permissions` survive a restart. The `admin`
 role cannot be deleted.
 
-Migrations in `migrations/` run automatically on connect (`sqlx::migrate!`).
+Migrations in `backend/migrations/` run automatically on connect (`sqlx::migrate!`).
 Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:17-alpine` and
 point the API at it by default; set `DATABASE_URL` in `.env` to use an external
 instance instead.
@@ -508,10 +508,10 @@ docker compose -f compose.dev.yml exec -T frontend sh -c \
 ```
 
 **Tests:** 89 (unit + integration), driven through the router with
-`tower::ServiceExt::oneshot` (no sockets). `tests/common/mod.rs` is the harness;
-fixtures in `tests/fixtures/`. `tests/perf.rs` is an `#[ignore]`d timing harness
-(`cargo test --release --test perf -- --ignored --nocapture`, reads a root
-`input.xlsx` if present).
+`tower::ServiceExt::oneshot` (no sockets). `backend/tests/common/mod.rs` is the
+harness; fixtures in `backend/tests/fixtures/`. `backend/tests/perf.rs` is an
+`#[ignore]`d timing harness (`cargo test --release --test perf -- --ignored
+--nocapture`, reads `backend/input.xlsx` if present).
 
 ---
 
@@ -573,18 +573,21 @@ disk (`BATCH_BASE_DIR`) — mount shared storage or run batch on a single replic
 
 ```
 .
-├── src/                       Rust API (see Architecture)
-├── migrations/                sqlx migrations (auth, refresh-reuse, jobs, rbac)
-├── tests/                     integration tests + fixtures + perf harness
-├── frontend/                  React admin panel (Vite)
+├── backend/                    Rust API
+│   ├── src/                    see Architecture
+│   ├── migrations/             sqlx migrations (auth, refresh-reuse, jobs, rbac)
+│   ├── tests/                  integration tests + fixtures + perf harness
+│   ├── .cargo/audit.toml       cargo-audit ignore list (with rationale)
+│   ├── Cargo.toml / Cargo.lock
+│   └── uploads/                batch results (BATCH_BASE_DIR), git-ignored
+├── frontend/                   React admin panel (Vite)
 ├── infrastructure/
-│   ├── Dockerfile             API release image
-│   ├── Dockerfile.dev         API dev image (cargo-watch)
+│   ├── Dockerfile              API release image (builds ./backend)
+│   ├── Dockerfile.dev          API dev image (cargo-watch)
 │   ├── frontend/Dockerfile.dev
-│   └── nginx/                 nginx.conf (prod, TLS) + nginx.dev.conf + Dockerfile
-├── .cargo/audit.toml          cargo-audit ignore list (with rationale)
-├── compose.dev.yml            nginx + api + frontend + postgres + redis, hot reload
-├── compose.prod.yml           nginx (TLS) + api + postgres + redis, only nginx exposed
+│   └── nginx/                  nginx.conf (prod, TLS) + nginx.dev.conf + Dockerfile
+├── compose.dev.yml             nginx + api + frontend + postgres + redis, hot reload
+├── compose.prod.yml            nginx (TLS) + api + postgres + redis, only nginx exposed
 ├── Makefile
 └── .env.example
 ```

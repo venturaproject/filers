@@ -47,16 +47,16 @@ test: ## Run the Rust test suite (unit + integration) in the container
 	$(DC) exec $(SVC) cargo test
 
 test-local: ## Run the Rust test suite on the host
-	cargo test
+	cd backend && cargo test
 
 audit: ## Scan dependencies for RustSec advisories (needs `cargo install cargo-audit`)
-	cargo audit
+	cd backend && cargo audit
 
 ci: ## fmt check + clippy + tests + audit (host)
-	cargo fmt --check
-	cargo clippy --all-targets -- -D warnings
-	cargo test
-	cargo audit
+	cd backend && cargo fmt --check
+	cd backend && cargo clippy --all-targets -- -D warnings
+	cd backend && cargo test
+	cd backend && cargo audit
 
 tsc: ## TypeScript check (frontend)
 	$(DC) exec $(FE) pnpm tsc --noEmit

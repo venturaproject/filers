@@ -45,8 +45,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: infrastructure/Dockerfile.dev
+      context: ./backend
+      dockerfile: ../infrastructure/Dockerfile.dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,7 +55,7 @@ services:
     # Only watch the Rust sources — not frontend/, uploads/, etc.
     command: cargo watch -w src -w Cargo.toml -w Cargo.lock -x run
     volumes:
-      - .:/app
+      - ./backend:/app
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/app/target
     expose:
