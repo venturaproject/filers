@@ -191,6 +191,7 @@ fn assemble_state(
             .as_deref()
             .and_then(RateLimit::parse),
         config.ext_default_monthly_page_quota,
+        config.ext_default_ai_token_quota,
     ));
     let auth_limiter = RateLimiter::build(
         redis.clone(),
@@ -318,6 +319,7 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         },
         ext_default_rate_limit: None,
         ext_default_monthly_page_quota: None,
+        ext_default_ai_token_quota: None,
         trust_proxy: false,
         auth_rate_limit: (5, 60),
         // Disabled for the test suite — the whole suite shares one "unknown" IP.

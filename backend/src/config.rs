@@ -25,6 +25,9 @@ pub struct Config {
     pub ext_default_rate_limit: Option<String>,
     /// Default monthly page quota for external clients that set none.
     pub ext_default_monthly_page_quota: Option<u64>,
+    /// Default monthly AI-token quota (spent on `/api/ocr` and
+    /// `/api/pdf/extract`) for external clients that set none.
+    pub ext_default_ai_token_quota: Option<u64>,
     /// Trust `X-Forwarded-For` / `X-Real-IP` (true when behind the nginx proxy).
     pub trust_proxy: bool,
     /// Per-IP budget for the auth endpoints: `(max_attempts, window_seconds)`.
@@ -143,6 +146,10 @@ impl Config {
                 .map(|v| v.trim().to_string())
                 .filter(|s| !s.is_empty()),
             ext_default_monthly_page_quota: env::var("EXT_DEFAULT_MONTHLY_PAGE_QUOTA")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|q| *q > 0),
+            ext_default_ai_token_quota: env::var("EXT_DEFAULT_AI_TOKEN_QUOTA")
                 .ok()
                 .and_then(|v| v.trim().parse().ok())
                 .filter(|q| *q > 0),
@@ -386,6 +393,7 @@ mod tests {
             },
             ext_default_rate_limit: None,
             ext_default_monthly_page_quota: None,
+            ext_default_ai_token_quota: None,
             trust_proxy: false,
             auth_rate_limit: (10, 60),
             api_rate_limit: Some((120, 60)),

@@ -209,6 +209,25 @@ pub async fn authorize(
     Ok(())
 }
 
+/// Before a billed LLM call (`/api/ocr`, `/api/pdf/extract`): reject if this
+/// client already exhausted its monthly AI-token quota. A no-op for
+/// Service/User/Session principals, which have no client-level quota.
+pub async fn check_ai_quota(state: &AppState, principal: &ApiPrincipal) -> AppResult<()> {
+    if let Some(client_id) = principal.client_id() {
+        state.api_clients.check_ai_token_quota(client_id).await?;
+    }
+    Ok(())
+}
+
+/// After a successful billed LLM call: add its token usage to the running
+/// total. Best-effort (never fails the request), no-op for non-`Client`
+/// principals.
+pub async fn record_ai_usage(state: &AppState, principal: &ApiPrincipal, tokens: u64) {
+    if let Some(client_id) = principal.client_id() {
+        state.api_clients.record_ai_tokens(client_id, tokens).await;
+    }
+}
+
 /// Record a finished sync operation so it shows up in "Procesamientos".
 pub async fn trace_sync(
     state: &AppState,

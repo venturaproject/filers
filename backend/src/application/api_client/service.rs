@@ -70,6 +70,7 @@ pub struct ApiClientService {
     pub tokens: Arc<dyn ClientTokenRepository>,
     default_rate_limit: Option<RateLimit>,
     default_quota: Option<u64>,
+    default_ai_token_quota: Option<u64>,
 }
 
 impl ApiClientService {
@@ -78,12 +79,14 @@ impl ApiClientService {
         tokens: Arc<dyn ClientTokenRepository>,
         default_rate_limit: Option<RateLimit>,
         default_quota: Option<u64>,
+        default_ai_token_quota: Option<u64>,
     ) -> Self {
         Self {
             clients,
             tokens,
             default_rate_limit,
             default_quota,
+            default_ai_token_quota,
         }
     }
 
@@ -122,6 +125,7 @@ impl ApiClientService {
             active: true,
             rate_limit: None,
             monthly_page_quota: None,
+            monthly_ai_token_quota: None,
             last_used_at: None,
             created_at: Utc::now(),
             usage: Usage::fresh(),
@@ -132,12 +136,14 @@ impl ApiClientService {
         Ok((client, secret))
     }
 
-    /// PATCH: `rate_limit` / `monthly_page_quota`. An empty string / 0 clears.
+    /// PATCH: `rate_limit` / `monthly_page_quota` / `monthly_ai_token_quota`.
+    /// An empty string / 0 clears.
     pub async fn set_limits(
         &self,
         id: Uuid,
         rate_limit: Option<String>,
         monthly_page_quota: Option<i64>,
+        monthly_ai_token_quota: Option<i64>,
     ) -> AppResult<ApiClient> {
         let mut client = self.get(id).await?;
 
@@ -148,6 +154,7 @@ impl ApiClientService {
             })?),
         };
         client.monthly_page_quota = monthly_page_quota.filter(|q| *q > 0).map(|q| q as u64);
+        client.monthly_ai_token_quota = monthly_ai_token_quota.filter(|q| *q > 0).map(|q| q as u64);
 
         self.clients.save(client.clone()).await?;
         Ok(client)
@@ -176,12 +183,19 @@ impl ApiClientService {
         client.usage.roll();
         let limit = client.monthly_page_quota.or(self.default_quota);
         let used = client.usage.pages;
+        let ai_limit = client
+            .monthly_ai_token_quota
+            .or(self.default_ai_token_quota);
+        let ai_used = client.usage.ai_tokens;
         Ok(json!({
             "period": client.usage.period,
             "pages": used,
             "requests": client.usage.requests,
+            "ai_tokens": ai_used,
             "monthly_page_quota": limit,
             "quota_remaining": limit.map(|q| q.saturating_sub(used)),
+            "monthly_ai_token_quota": ai_limit,
+            "ai_quota_remaining": ai_limit.map(|q| q.saturating_sub(ai_used)),
             "rate_limit": client
                 .rate_limit
                 .or(self.default_rate_limit)
@@ -347,5 +361,121 @@ impl ApiClientService {
                 }),
             )
             .await;
+    }
+
+    /// Reject when this client has already used up its monthly AI-token
+    /// quota. Call *before* the (billed) upstream `/api/ocr` or
+    /// `/api/pdf/extract` request — the actual cost of *this* call isn't
+    /// known until it returns, so like the page quota in [`Self::authorize`]
+    /// this only catches "already over", not "would go over".
+    pub async fn check_ai_token_quota(&self, client_id: Uuid) -> AppResult<()> {
+        let default_quota = self.default_ai_token_quota;
+        self.clients
+            .mutate(
+                client_id,
+                Box::new(move |c| {
+                    c.usage.roll();
+                    let quota = c.monthly_ai_token_quota.or(default_quota);
+                    if let Some(limit) = quota
+                        && c.usage.ai_tokens >= limit
+                    {
+                        return Err(AppError::TooManyRequests(format!(
+                            "monthly AI token quota exhausted ({}/{limit})",
+                            c.usage.ai_tokens
+                        )));
+                    }
+                    Ok(())
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Add tokens spent on an LLM-backed call to the current period
+    /// (best-effort, atomic) — mirrors [`Self::record_pages`].
+    pub async fn record_ai_tokens(&self, client_id: Uuid, tokens: u64) {
+        let _ = self
+            .clients
+            .mutate(
+                client_id,
+                Box::new(move |c| {
+                    c.usage.roll();
+                    c.usage.ai_tokens = c.usage.ai_tokens.saturating_add(tokens);
+                    Ok(())
+                }),
+            )
+            .await;
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::infrastructure::persistence::memory::api_client_repository::{
+        MemoryApiClientRepository, MemoryClientTokenRepository,
+    };
+
+    fn service(default_ai_token_quota: Option<u64>) -> ApiClientService {
+        ApiClientService::new(
+            Arc::new(MemoryApiClientRepository::new()),
+            Arc::new(MemoryClientTokenRepository::new()),
+            None,
+            None,
+            default_ai_token_quota,
+        )
+    }
+
+    #[tokio::test]
+    async fn ai_quota_blocks_once_exhausted_and_set_limits_can_clear_it() {
+        let svc = service(None);
+        let (client, _secret) = svc.create("t", vec!["*".into()]).await.unwrap();
+
+        // No quota configured anywhere — always allowed.
+        svc.check_ai_token_quota(client.id).await.unwrap();
+        svc.record_ai_tokens(client.id, 1_000_000).await;
+        svc.check_ai_token_quota(client.id).await.unwrap();
+
+        // Give it an explicit, already-exhausted quota.
+        svc.set_limits(client.id, None, None, Some(500))
+            .await
+            .unwrap();
+        assert!(svc.check_ai_token_quota(client.id).await.is_err());
+
+        // Clearing it (0) lifts the block again.
+        svc.set_limits(client.id, None, None, Some(0))
+            .await
+            .unwrap();
+        svc.check_ai_token_quota(client.id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn instance_default_ai_quota_applies_when_the_client_sets_none() {
+        let svc = service(Some(100));
+        let (client, _secret) = svc.create("t", vec!["*".into()]).await.unwrap();
+
+        svc.record_ai_tokens(client.id, 100).await;
+        assert!(svc.check_ai_token_quota(client.id).await.is_err());
+
+        // An explicit (higher) per-client quota overrides the default.
+        svc.set_limits(client.id, None, None, Some(1000))
+            .await
+            .unwrap();
+        svc.check_ai_token_quota(client.id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn usage_json_reports_ai_tokens() {
+        let svc = service(None);
+        let (client, _secret) = svc.create("t", vec!["*".into()]).await.unwrap();
+        svc.set_limits(client.id, None, None, Some(1000))
+            .await
+            .unwrap();
+        svc.record_ai_tokens(client.id, 42).await;
+
+        let json = svc.usage_json(client.id).await.unwrap();
+        assert_eq!(json["ai_tokens"], 42);
+        assert_eq!(json["monthly_ai_token_quota"], 1000);
+        assert_eq!(json["ai_quota_remaining"], 958);
     }
 }

@@ -28,6 +28,8 @@ pub struct CreateBody {
 pub struct UpdateBody {
     pub rate_limit: Option<String>,
     pub monthly_page_quota: Option<i64>,
+    /// Cap on tokens spent via `/api/ocr` + `/api/pdf/extract`.
+    pub monthly_ai_token_quota: Option<i64>,
 }
 
 fn created_response(client: Value, secret: String) -> Value {
@@ -64,7 +66,12 @@ pub async fn update(
 ) -> AppResult<Json<Value>> {
     let client = state
         .api_clients
-        .set_limits(id, body.rate_limit, body.monthly_page_quota)
+        .set_limits(
+            id,
+            body.rate_limit,
+            body.monthly_page_quota,
+            body.monthly_ai_token_quota,
+        )
         .await?;
     Ok(Json(client.to_json()))
 }

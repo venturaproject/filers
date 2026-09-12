@@ -25,8 +25,8 @@ impl PgApiClientRepository {
 }
 
 const CLIENT_COLS: &str = "id, name, client_id, secret_hash, scopes, active, rate_limit_count, \
-    rate_limit_window, monthly_page_quota, last_used_at, created_at, usage_period, \
-    usage_requests, usage_pages, window_start, window_count";
+    rate_limit_window, monthly_page_quota, monthly_ai_token_quota, last_used_at, created_at, \
+    usage_period, usage_requests, usage_pages, usage_ai_tokens, window_start, window_count";
 
 fn row_to_client(row: PgRow) -> ApiClient {
     let rl_count: Option<i32> = row.get("rate_limit_count");
@@ -49,12 +49,16 @@ fn row_to_client(row: PgRow) -> ApiClient {
         monthly_page_quota: row
             .get::<Option<i64>, _>("monthly_page_quota")
             .map(|q| q.max(0) as u64),
+        monthly_ai_token_quota: row
+            .get::<Option<i64>, _>("monthly_ai_token_quota")
+            .map(|q| q.max(0) as u64),
         last_used_at: row.get("last_used_at"),
         created_at: row.get("created_at"),
         usage: Usage {
             period: row.get("usage_period"),
             requests: row.get::<i64, _>("usage_requests").max(0) as u64,
             pages: row.get::<i64, _>("usage_pages").max(0) as u64,
+            ai_tokens: row.get::<i64, _>("usage_ai_tokens").max(0) as u64,
         },
         window_start: row.get("window_start"),
         window_count: row.get::<i32, _>("window_count").max(0) as u32,
@@ -68,8 +72,9 @@ where
 {
     let res = sqlx::query(
         "UPDATE api_clients SET name=$2, client_id=$3, secret_hash=$4, scopes=$5, active=$6, \
-         rate_limit_count=$7, rate_limit_window=$8, monthly_page_quota=$9, last_used_at=$10, \
-         usage_period=$11, usage_requests=$12, usage_pages=$13, window_start=$14, window_count=$15 \
+         rate_limit_count=$7, rate_limit_window=$8, monthly_page_quota=$9, \
+         monthly_ai_token_quota=$10, last_used_at=$11, usage_period=$12, usage_requests=$13, \
+         usage_pages=$14, usage_ai_tokens=$15, window_start=$16, window_count=$17 \
          WHERE id=$1",
     )
     .bind(client.id)
@@ -81,10 +86,12 @@ where
     .bind(client.rate_limit.map(|r| r.count as i32))
     .bind(client.rate_limit.map(|r| r.window_secs))
     .bind(client.monthly_page_quota.map(|q| q as i64))
+    .bind(client.monthly_ai_token_quota.map(|q| q as i64))
     .bind(client.last_used_at)
     .bind(&client.usage.period)
     .bind(client.usage.requests as i64)
     .bind(client.usage.pages as i64)
+    .bind(client.usage.ai_tokens as i64)
     .bind(client.window_start)
     .bind(client.window_count as i32)
     .execute(exec)
@@ -129,9 +136,10 @@ impl ApiClientRepository for PgApiClientRepository {
     async fn create(&self, c: ApiClient) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO api_clients (id, name, client_id, secret_hash, scopes, active, \
-             rate_limit_count, rate_limit_window, monthly_page_quota, last_used_at, created_at, \
-             usage_period, usage_requests, usage_pages, window_start, window_count) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+             rate_limit_count, rate_limit_window, monthly_page_quota, monthly_ai_token_quota, \
+             last_used_at, created_at, usage_period, usage_requests, usage_pages, \
+             usage_ai_tokens, window_start, window_count) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
         )
         .bind(c.id)
         .bind(&c.name)
@@ -142,11 +150,13 @@ impl ApiClientRepository for PgApiClientRepository {
         .bind(c.rate_limit.map(|r| r.count as i32))
         .bind(c.rate_limit.map(|r| r.window_secs))
         .bind(c.monthly_page_quota.map(|q| q as i64))
+        .bind(c.monthly_ai_token_quota.map(|q| q as i64))
         .bind(c.last_used_at)
         .bind(c.created_at)
         .bind(&c.usage.period)
         .bind(c.usage.requests as i64)
         .bind(c.usage.pages as i64)
+        .bind(c.usage.ai_tokens as i64)
         .bind(c.window_start)
         .bind(c.window_count as i32)
         .execute(&self.pool)

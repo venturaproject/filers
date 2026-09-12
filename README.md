@@ -55,7 +55,7 @@ the response, offloading the heavy lifting to Rust.
 
 - Two auth models for the API (static service key **or** OAuth2 client-credentials),
   a third (session cookie) for the admin panel
-- Per-client scopes, rate limits and monthly page quotas
+- Per-client scopes, rate limits and monthly quotas (pages, and independently AI tokens)
 - Refresh-token rotation with reuse detection (revokes the token family)
 - Optional Postgres persistence (users, sessions, API clients, tokens, job
   history, RBAC catalogue); optional Redis-shared rate limiters
@@ -164,6 +164,7 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `SEED_USER_EMAIL` / `_PASSWORD` / `_NAME` / `_API_KEY` | `admin@filers.test` / `admin1234` / `Admin` / first `API_KEYS` | seeded admin account |
 | `SEED_DEMO_USERS` | `false` | seed `maria@` / `carlos@` (`demo1234`) — dev only, **fatal in production** |
 | `EXT_DEFAULT_RATE_LIMIT` / `EXT_DEFAULT_MONTHLY_PAGE_QUOTA` | – | defaults for API clients that set none |
+| `EXT_DEFAULT_AI_TOKEN_QUOTA` | – | same, but for tokens spent on `/api/ocr` + `/api/pdf/extract` — independent of the page quota above |
 | `RUST_LOG` | `rust_api=info,tower_http=info` | tracing filter |
 
 **Production startup checks** (fatal when `APP_ENV=production`): weak/default
@@ -179,7 +180,13 @@ cookie, `ENABLE_API_DOCS` on.
 | --- | --- | --- | --- |
 | **Service key** | `x-api-key: <key>` | internal / CI callers | `/api/process*`, `/api/generate/*`, `/api/jobs/*` |
 | **OAuth2 client-credentials** | `Authorization: Bearer <token>` | external partners | same as above |
-| **Session cookie** | `Set-Cookie: session=…` (HttpOnly, SameSite=Lax) | the admin panel | `/api/v1/*` |
+| **Session cookie** | `Set-Cookie: session=…` (HttpOnly, SameSite=Lax) | the admin panel | `/api/v1/*`, plus a fallback on `/api/process*` / `/api/pdf/*` / `/api/ocr` when neither a key nor a bearer token is present |
+
+The session-cookie fallback is what lets the panel's own sanity-check tools
+(Procesar archivo, Probar OCR/IA) call the processing endpoints without the
+browser ever handling an API key — it resolves to the signed-in user, full
+access, traced as `origin: admin` in the job history (as opposed to
+`api_key`/`oauth_client`/`service`).
 
 Passwords are Argon2id. API tokens are stored SHA-256-hashed.
 
@@ -204,8 +211,11 @@ curl -s -X POST http://localhost:8085/api/ext/auth/refresh \
 ```
 
 Access token lives 1 h, refresh token 30 d. Each client has a **scope**
-(`files:read` and/or `files:write`), an optional **rate limit** and an optional
-**monthly page quota** (→ `429` when exceeded).
+(`files:read` and/or `files:write`), an optional **rate limit**, an optional
+**monthly page quota** and an independent optional **monthly AI-token quota**
+(tokens spent on `/api/ocr` + `/api/pdf/extract`) — either → `429` when
+exceeded. Manage both from the admin panel (Usuarios → API clients) or
+`PATCH /api/v1/api-clients/:id`.
 
 | Scope | Grants |
 | --- | --- |

@@ -203,18 +203,26 @@ function CreateDialog({ open, onClose, onCreate, loading }: CreateDialogProps) {
 interface EditLimitsDialogProps {
   client: ApiClientRecord | null
   onClose: () => void
-  onSave: (payload: { rate_limit: string | null; monthly_page_quota: number | null }) => Promise<void>
+  onSave: (payload: {
+    rate_limit: string | null
+    monthly_page_quota: number | null
+    monthly_ai_token_quota: number | null
+  }) => Promise<void>
   loading: boolean
 }
 
 function EditLimitsDialog({ client, onClose, onSave, loading }: EditLimitsDialogProps) {
   const [rateLimit, setRateLimit] = useState('')
   const [quota, setQuota] = useState('')
+  const [aiQuota, setAiQuota] = useState('')
 
   useEffect(() => {
     if (client) {
       setRateLimit(client.rate_limit ?? '')
       setQuota(client.monthly_page_quota != null ? String(client.monthly_page_quota) : '')
+      setAiQuota(
+        client.monthly_ai_token_quota != null ? String(client.monthly_ai_token_quota) : '',
+      )
     }
   }, [client])
 
@@ -229,9 +237,15 @@ function EditLimitsDialog({ client, onClose, onSave, loading }: EditLimitsDialog
       toast.error('La cuota mensual debe ser un número de páginas')
       return
     }
+    const aq = aiQuota.trim()
+    if (aq && !/^\d+$/.test(aq)) {
+      toast.error('La cuota de IA debe ser un número de tokens')
+      return
+    }
     await onSave({
       rate_limit: rl || null,
       monthly_page_quota: q ? Number(q) : null,
+      monthly_ai_token_quota: aq ? Number(aq) : null,
     })
   }
 
@@ -266,6 +280,20 @@ function EditLimitsDialog({ client, onClose, onSave, loading }: EditLimitsDialog
               placeholder="Sin límite"
             />
           </div>
+          <div className="space-y-1">
+            <Label htmlFor="client-ai-quota">Cuota mensual de tokens IA</Label>
+            <Input
+              id="client-ai-quota"
+              type="number"
+              min={0}
+              value={aiQuota}
+              onChange={(e) => setAiQuota(e.target.value)}
+              placeholder="Sin límite"
+            />
+            <p className="text-xs text-muted-foreground">
+              Tokens consumidos en OCR de imagen y extracción de PDF (/api/ocr, /api/pdf/extract).
+            </p>
+          </div>
         </div>
 
         <DialogFooter>
@@ -299,6 +327,14 @@ function UsageCell({ clientId }: { clientId: string }) {
           ? ` / ${data.monthly_page_quota.toLocaleString()} págs.`
           : ' págs. (sin cuota)'}
       </div>
+      {(data.ai_tokens > 0 || data.monthly_ai_token_quota) && (
+        <div>
+          <span className="font-medium text-foreground">{data.ai_tokens.toLocaleString()}</span>
+          {data.monthly_ai_token_quota
+            ? ` / ${data.monthly_ai_token_quota.toLocaleString()} tokens IA`
+            : ' tokens IA (sin cuota)'}
+        </div>
+      )}
       <div>{data.rate_limit ?? '—'} · {data.period}</div>
     </div>
   )
@@ -331,8 +367,17 @@ export function ApiClientsTab() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { rate_limit: string | null; monthly_page_quota: number | null } }) =>
-      apiClientsApi.update(id, payload),
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string
+      payload: {
+        rate_limit: string | null
+        monthly_page_quota: number | null
+        monthly_ai_token_quota: number | null
+      }
+    }) => apiClientsApi.update(id, payload),
     onSuccess: (_res, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['api-clients'] })
       queryClient.invalidateQueries({ queryKey: ['api-client-usage', id] })

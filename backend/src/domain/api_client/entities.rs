@@ -44,6 +44,10 @@ pub struct Usage {
     pub period: String,
     pub requests: u64,
     pub pages: u64,
+    /// Prompt + completion tokens spent on `/api/ocr` and `/api/pdf/extract`
+    /// (the two endpoints that call out to a billed LLM). Independent of
+    /// `pages` — a client can be capped on one, both, or neither.
+    pub ai_tokens: u64,
 }
 
 impl Usage {
@@ -57,6 +61,7 @@ impl Usage {
             period: Self::current_period(),
             requests: 0,
             pages: 0,
+            ai_tokens: 0,
         }
     }
 
@@ -80,6 +85,9 @@ pub struct ApiClient {
     pub active: bool,
     pub rate_limit: Option<RateLimit>,
     pub monthly_page_quota: Option<u64>,
+    /// Cap on `usage.ai_tokens` — `/api/ocr` and `/api/pdf/extract` refuse new
+    /// calls once it's reached, checked *before* the (billed) upstream call.
+    pub monthly_ai_token_quota: Option<u64>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 
@@ -104,6 +112,11 @@ impl ApiClient {
             .map(|q| q.saturating_sub(self.usage.pages))
     }
 
+    pub fn ai_quota_remaining(&self) -> Option<u64> {
+        self.monthly_ai_token_quota
+            .map(|q| q.saturating_sub(self.usage.ai_tokens))
+    }
+
     /// `ApiClientRecord` in the frontend.
     pub fn to_json(&self) -> Value {
         json!({
@@ -114,6 +127,7 @@ impl ApiClient {
             "active": self.active,
             "rate_limit": self.rate_limit.map(RateLimit::to_raw),
             "monthly_page_quota": self.monthly_page_quota,
+            "monthly_ai_token_quota": self.monthly_ai_token_quota,
             "last_used_at": self.last_used_at.map(|t| t.to_rfc3339()),
             "created_at": self.created_at.to_rfc3339(),
         })
@@ -125,8 +139,11 @@ impl ApiClient {
             "period": self.usage.period,
             "pages": self.usage.pages,
             "requests": self.usage.requests,
+            "ai_tokens": self.usage.ai_tokens,
             "monthly_page_quota": self.monthly_page_quota,
             "quota_remaining": self.quota_remaining(),
+            "monthly_ai_token_quota": self.monthly_ai_token_quota,
+            "ai_quota_remaining": self.ai_quota_remaining(),
             "rate_limit": self.rate_limit.map(RateLimit::to_raw),
         })
     }
@@ -196,10 +213,12 @@ mod tests {
             period: "1999-01".into(),
             requests: 5,
             pages: 9,
+            ai_tokens: 3,
         };
         u.roll();
         assert_eq!(u.requests, 0);
         assert_eq!(u.pages, 0);
+        assert_eq!(u.ai_tokens, 0);
         assert_eq!(u.period, Usage::current_period());
     }
 
@@ -213,6 +232,7 @@ mod tests {
             active: true,
             rate_limit: None,
             monthly_page_quota: None,
+            monthly_ai_token_quota: None,
             last_used_at: None,
             created_at: Utc::now(),
             usage: Usage::fresh(),

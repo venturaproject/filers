@@ -9,6 +9,7 @@ export interface ApiClientRecord {
   active: boolean
   rate_limit: string | null
   monthly_page_quota: number | null
+  monthly_ai_token_quota: number | null
   last_used_at: string | null
   created_at: string
 }
@@ -16,14 +17,18 @@ export interface ApiClientRecord {
 export interface UpdateApiClientPayload {
   rate_limit?: string | null
   monthly_page_quota?: number | null
+  monthly_ai_token_quota?: number | null
 }
 
 export interface ApiClientUsage {
   period: string
   pages: number
   requests: number
+  ai_tokens: number
   monthly_page_quota: number | null
   quota_remaining: number | null
+  monthly_ai_token_quota: number | null
+  ai_quota_remaining: number | null
   rate_limit: string | null
 }
 
@@ -40,6 +45,7 @@ export interface CreateApiClientResponse {
 export const AVAILABLE_SCOPES = [
   { value: 'files:write', label: 'Procesar / transformar / convertir / pipelines / batch' },
   { value: 'files:read',  label: 'Perfilar / validar / comparar / consultar trabajos' },
+  { value: 'ocr:read',    label: 'OCR de imagen y extracción de PDF con IA' },
   { value: '*',           label: 'Acceso completo (*)' },
 ]
 

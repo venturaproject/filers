@@ -19,7 +19,8 @@ use crate::{
     errors::{AppError, AppResult},
     infrastructure::http::{
         handlers::process_common::{
-            attachment, authorize, read_multipart, read_upload, stem, trace_sync,
+            attachment, authorize, check_ai_quota, read_multipart, read_upload, record_ai_usage,
+            stem, trace_sync,
         },
         middleware::api_key::ApiPrincipal,
     },
@@ -347,6 +348,7 @@ pub async fn extract(
         ));
     };
     authorize(&state, &principal, "ocr:read", true).await?;
+    check_ai_quota(&state, &principal).await?;
 
     let mp = read_multipart(&state, multipart).await?;
     let (fname, bytes) = mp
@@ -389,6 +391,11 @@ pub async fn extract(
             schema.redact_pii,
         )
         .await;
+    if let Ok(r) = &result
+        && let Some(usage) = &r.usage
+    {
+        record_ai_usage(&state, &principal, usage.total_tokens as u64).await;
+    }
     let items = result.as_ref().map(|r| r.items.len() as u64).unwrap_or(0);
     trace(
         &state,

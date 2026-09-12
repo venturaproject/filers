@@ -12,7 +12,9 @@ use crate::{
     domain::processing::entities::Timings,
     errors::{AppError, AppResult},
     infrastructure::http::{
-        handlers::process_common::{authorize, read_multipart, trace_sync},
+        handlers::process_common::{
+            authorize, check_ai_quota, read_multipart, record_ai_usage, trace_sync,
+        },
         middleware::api_key::ApiPrincipal,
     },
     state::AppState,
@@ -46,6 +48,7 @@ pub async fn handle(
         ));
     };
     authorize(&state, &principal, "ocr:read", true).await?;
+    check_ai_quota(&state, &principal).await?;
 
     let data = read_multipart(&state, multipart).await?;
     let (filename, bytes) = data
@@ -59,6 +62,11 @@ pub async fn handle(
 
     let started = Instant::now();
     let result = client.run(&bytes, mime, prompt.as_deref(), None).await;
+    if let Ok(r) = &result
+        && let Some(usage) = &r.usage
+    {
+        record_ai_usage(&state, &principal, usage.total_tokens as u64).await;
+    }
     trace(&state, filename, &principal, started, &result).await;
     Ok(Json(result?))
 }
