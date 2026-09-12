@@ -51,6 +51,7 @@ export const appRouteMap: Record<string, RouteValue> = {
   'admin.permissions.destroy': (p) => `/admin/permissions/${p.permission ?? p.id}`,
 
   'admin.files.process': '/admin/process',
+  'admin.files.ocr': '/admin/ocr',
   'admin.files.jobs': '/admin/jobs',
   'admin.files.job': (p) => `/admin/jobs/${p.id}`,
 }

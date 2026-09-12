@@ -57,4 +57,8 @@ export const endpoints = {
     jobResults:     (id: string) => `${API_BASE}/jobs/${id}/results`,
     jobResultFile:  (id: string, name: string) => `${API_BASE}/jobs/${id}/results/${encodeURIComponent(name)}`,
   },
+  ai: {
+    ocr:         `/api/ocr`,
+    pdfExtract:  `/api/pdf/extract`,
+  },
 }
