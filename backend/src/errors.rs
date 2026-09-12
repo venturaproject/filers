@@ -22,6 +22,8 @@ pub enum AppError {
     NotFound(String),
     #[error("Bad request: {0}")]
     BadRequest(String),
+    #[error("{0}")]
+    ServiceUnavailable(String),
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
     #[error("Parse error: {0}")]
@@ -41,6 +43,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) | AppError::UnsupportedFormat(_) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, self.to_string())
             }
+            AppError::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             AppError::ParseError(_) => (StatusCode::UNPROCESSABLE_ENTITY, self.to_string()),
             AppError::Internal(e) => {
                 tracing::error!("Internal error: {e:#}");

@@ -92,6 +92,17 @@ pub struct BatchBody {
     pub output: Option<serde_json::Value>,
 }
 
+/// `multipart/form-data` body: an image plus an optional OCR instruction.
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct OcrForm {
+    /// png / jpeg / gif / webp — sniffed by magic bytes.
+    #[schema(value_type = String, format = Binary)]
+    pub file: String,
+    /// Overrides the default "transcribe everything, verbatim" instruction.
+    pub prompt: Option<String>,
+}
+
 /// JSON body for the external OAuth2 token endpoint.
 #[derive(utoipa::ToSchema)]
 #[allow(dead_code)]
@@ -142,7 +153,10 @@ impl Modify for SecurityAddon {
                        comparison. Authenticate with a static `x-api-key` header \
                        or an OAuth2 bearer token. `files:read` covers profile / \
                        validate / diff / job reads; `files:write` covers process \
-                       / convert / transform / pipeline / batch.",
+                       / convert / transform / pipeline / batch. `/api/ocr` uses \
+                       `ocr:read` (aliased to `files:read`, so an existing \
+                       `files:*` client already has it) and is only reachable \
+                       when the server has `OCR_LLM_API_KEY` configured.",
     ),
     servers((url = "/", description = "This host")),
     paths(
@@ -159,6 +173,7 @@ impl Modify for SecurityAddon {
         crate::infrastructure::http::handlers::pdf::forms,
         crate::infrastructure::http::handlers::pdf::split,
         crate::infrastructure::http::handlers::pdf::merge,
+        crate::infrastructure::http::handlers::ocr::handle,
         crate::infrastructure::http::handlers::batch::handle,
         crate::infrastructure::http::handlers::jobs::handle,
         crate::infrastructure::http::handlers::jobs::results,
@@ -169,7 +184,7 @@ impl Modify for SecurityAddon {
     components(schemas(
         ParsedFile, ParseOptions, ParseStats, ParseError, Timings, FileFormat,
         UploadForm, SchemaFileForm, SpecFileForm, PipelineFileForm, DiffForm, MergeForm,
-        BatchBody, TokenBody, RefreshBody,
+        OcrForm, BatchBody, TokenBody, RefreshBody,
         crate::application::processing::operations::generate::XlsxRequest,
         crate::application::processing::operations::generate::XlsxOptions,
         crate::application::processing::pdf::info::PdfInfo,
@@ -179,10 +194,13 @@ impl Modify for SecurityAddon {
         crate::application::processing::pdf::text::PageText,
         crate::application::processing::pdf::forms::FormResult,
         crate::application::processing::pdf::forms::Field,
+        crate::application::ocr::OcrResult,
+        crate::application::ocr::Usage,
     )),
     tags(
         (name = "processing", description = "Synchronous operations on an uploaded file"),
         (name = "pdf", description = "PDF inspection and page manipulation"),
+        (name = "ocr", description = "Text extraction from an image via a vision LLM"),
         (name = "batch", description = "Asynchronous multi-file jobs"),
         (name = "jobs", description = "Job status and downloadable results"),
         (name = "auth", description = "OAuth2 client-credentials for external clients"),

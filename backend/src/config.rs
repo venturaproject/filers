@@ -52,6 +52,19 @@ pub struct Config {
     /// (`/api/docs`) and Swagger UI (`/api/swagger`) viewers. `ENABLE_API_DOCS`
     /// overrides; unset defaults to "on outside production, off in production".
     pub enable_api_docs: bool,
+    /// OCR via a vision-capable LLM behind an OpenAI-compatible
+    /// `/chat/completions` endpoint (NVIDIA NIM by default, or any other host
+    /// that speaks the same shape). The upstream key never reaches the caller —
+    /// they authenticate against *this* API, same as every other endpoint.
+    /// A missing `OCR_LLM_API_KEY` disables `/api/ocr` (503), it does not
+    /// half-configure it.
+    pub ocr_llm_base_url: String,
+    pub ocr_llm_model: String,
+    pub ocr_llm_api_key: Option<String>,
+    /// Ceiling applied to a caller's `max_tokens`, regardless of what they ask
+    /// for — a cost guard against a runaway request.
+    pub ocr_llm_max_tokens: u32,
+    pub ocr_llm_timeout_secs: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -175,6 +188,24 @@ impl Config {
                 }
                 _ => !production,
             },
+            ocr_llm_base_url: env::var("OCR_LLM_BASE_URL")
+                .unwrap_or_else(|_| "https://integrate.api.nvidia.com/v1".into()),
+            ocr_llm_model: env::var("OCR_LLM_MODEL")
+                .unwrap_or_else(|_| "meta/llama-3.2-11b-vision-instruct".into()),
+            ocr_llm_api_key: env::var("OCR_LLM_API_KEY")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            ocr_llm_max_tokens: env::var("OCR_LLM_MAX_TOKENS")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(2048),
+            ocr_llm_timeout_secs: env::var("OCR_LLM_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(60),
         }
     }
 
@@ -356,6 +387,11 @@ mod tests {
             webhook_url: None,
             webhook_secret: None,
             enable_api_docs: false,
+            ocr_llm_base_url: "https://integrate.api.nvidia.com/v1".into(),
+            ocr_llm_model: "meta/llama-3.2-11b-vision-instruct".into(),
+            ocr_llm_api_key: None,
+            ocr_llm_max_tokens: 2048,
+            ocr_llm_timeout_secs: 60,
         }
     }
 

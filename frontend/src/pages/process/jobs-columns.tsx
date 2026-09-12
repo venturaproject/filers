@@ -18,6 +18,7 @@ export const OPERATION_LABEL: Record<Operation, string> = {
   pdf_forms: 'PDF · formulario',
   pdf_split: 'PDF · dividir',
   pdf_merge: 'PDF · unir',
+  ocr: 'OCR (visión)',
 }
 
 export const KIND_LABEL: Record<JobKind, string> = {

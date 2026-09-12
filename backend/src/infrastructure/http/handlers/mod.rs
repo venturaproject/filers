@@ -7,6 +7,7 @@ pub mod generate;
 pub mod jobs;
 pub mod jobs_admin;
 pub mod meta;
+pub mod ocr;
 pub mod pdf;
 pub mod permissions;
 pub mod process;

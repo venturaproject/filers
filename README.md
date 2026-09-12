@@ -21,6 +21,7 @@ the response, offloading the heavy lifting to Rust.
 - [Authentication](#authentication)
 - [Processing API](#processing-api)
 - [PDF](#pdf)
+- [OCR](#ocr)
 - [Batch jobs](#batch-jobs)
 - [Admin API](#admin-api-session-cookie)
 - [OpenAPI docs](#openapi-docs)
@@ -60,6 +61,7 @@ the response, offloading the heavy lifting to Rust.
   history, RBAC catalogue); optional Redis-shared rate limiters
 - Full job history + a monitoring dashboard (throughput, p95, error rate, 24h timeline)
 - PDF: info / text / forms / split / merge (pure Rust). Gated OpenAPI spec + Scalar and Swagger UI
+- OCR: text extraction from an image via a vision LLM (off unless `OCR_LLM_API_KEY` is set)
 - Liveness / readiness probes, graceful shutdown, startup job reconciliation
 - nginx as the single entrypoint (dev and prod)
 
@@ -154,6 +156,8 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `AUTH_RATE_LIMIT` | `10/60` | per-IP throttle for `/api/v1/auth/*` and `/api/ext/auth/*` (`<n>/<seconds>`) — Redis-backed when `REDIS_URL` is set |
 | `API_RATE_LIMIT` | `120/60` | per-IP throttle for every other `/api` route; `off` disables |
 | `ENABLE_API_DOCS` | – | serve `/api/openapi.json` + `/api/docs` (Scalar) + `/api/swagger`. Unset → on outside production, off in production. `true`/`false` forces it |
+| `OCR_LLM_BASE_URL` / `_MODEL` / `_API_KEY` | NVIDIA NIM / `meta/llama-3.2-11b-vision-instruct` / – | vision-LLM `/chat/completions` host for `POST /api/ocr`; empty key → route answers `503` |
+| `OCR_LLM_MAX_TOKENS` / `_TIMEOUT_SECS` | `2048` / `60` | server-side ceiling on a caller's `max_tokens`; upstream request timeout |
 | `APP_NAME` | `Filers` | public name at `GET /api/v1/config` |
 | `SESSION_COOKIE_SECURE` | `false` | add `Secure` to the session cookie + emit HSTS (enable behind HTTPS) |
 | `SEED_USER_EMAIL` / `_PASSWORD` / `_NAME` / `_API_KEY` | `admin@filers.test` / `admin1234` / `Admin` / first `API_KEYS` | seeded admin account |
@@ -204,8 +208,9 @@ Access token lives 1 h, refresh token 30 d. Each client has a **scope**
 
 | Scope | Grants |
 | --- | --- |
-| `files:read` | `profile`, `validate`, `diff`, reading jobs |
-| `files:write` | `process`, `convert`, `transform`, `pipeline`, `batch`, `generate/xlsx` |
+| `files:read` | `profile`, `validate`, `diff`, reading jobs, `pdf/{info,text,forms}` |
+| `files:write` | `process`, `convert`, `transform`, `pipeline`, `batch`, `generate/xlsx`, `pdf/{split,merge}` |
+| `ocr:read` | `POST /api/ocr` — aliased to `files:read`, so any `files:*` client already has it |
 
 ---
 
@@ -355,6 +360,46 @@ Repeat the `file` part two or more times → the concatenated PDF.
 
 ---
 
+## OCR
+
+The gap `pdf::text` leaves open: an actual scanned document. `POST /api/ocr`
+sends an image to a vision-capable LLM behind an OpenAI-compatible
+`/chat/completions` endpoint (NVIDIA's hosted NIM catalog by default) and
+returns what it reads. The upstream key lives only on this server — a caller
+authenticates against **this** API's own scopes, never against the model
+provider's.
+
+Off by default: unset `OCR_LLM_API_KEY` and the route answers `503` instead of
+half-working. See [Configuration](#configuration).
+
+**Data leaves this server.** The image is relayed to the configured model
+provider — that's a real trust boundary, not an implementation detail. Before
+that happens, EXIF/XMP/IPTC metadata (GPS coordinates, device serial,
+timestamp — the usual payload of a phone photo) is stripped from JPEG/PNG
+uploads; this is best-effort and only touches the file's *metadata*, never the
+pixels, so it does not redact anything visible in the image itself (a face, an
+ID number). Nothing from the call is persisted on this side beyond the
+filename in the job's history — not the image, not the transcribed text.
+
+### `POST /api/ocr`
+
+Field `file` (png / jpeg / gif / webp — sniffed by magic bytes, never a
+trusted `Content-Type`), optional field `prompt` to override the default
+"transcribe everything, verbatim" instruction. → `{ model, text, finish_reason,
+usage }`.
+
+Scope `ocr:read` (aliased to `files:read` — an existing `files:*` client
+already has it, no re-configuration needed). `max_tokens` is capped server-side
+by `OCR_LLM_MAX_TOKENS` regardless of what a caller asks for.
+
+```bash
+curl -s -X POST http://localhost:8085/api/ocr \
+  -H "x-api-key: dev-key" \
+  -F "file=@receipt.jpg" | jq -r .text
+```
+
+---
+
 ## Batch jobs
 
 ### `POST /api/process/batch`
@@ -477,6 +522,12 @@ server also drains in-flight requests on SIGTERM / Ctrl-C before exiting.
   only)
 - Job reads scoped to the creator (404, no existence oracle)
 - Security headers middleware; HSTS when `SESSION_COOKIE_SECURE=true`
+- `/api/ocr` is a deliberate trust-boundary crossing — the image is relayed to
+  a third-party model provider (off by default; opt in with `OCR_LLM_API_KEY`).
+  EXIF/XMP/IPTC (GPS, device serial, timestamp) is stripped from JPEG/PNG
+  before upload — best-effort, and it does **not** redact content baked into
+  the pixels (faces, ID numbers). Job history keeps only the filename, never
+  the image or the transcribed text
 
 ---
 

@@ -201,6 +201,7 @@ fn assemble_state(
     let api_limiter = config
         .api_rate_limit
         .map(|(n, w)| RateLimiter::build(redis.clone(), n, w, "rl:api"));
+    let ocr = crate::application::ocr::OcrClient::from_config(&config);
 
     Arc::new(AppState {
         config,
@@ -212,6 +213,7 @@ fn assemble_state(
         auth_limiter,
         api_limiter,
         db_pool: stores.db_pool,
+        ocr,
     })
 }
 
@@ -328,5 +330,11 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         webhook_secret: None,
         // Exercise the docs routes in integration tests.
         enable_api_docs: true,
+        ocr_llm_base_url: "https://integrate.api.nvidia.com/v1".to_string(),
+        ocr_llm_model: "meta/llama-3.2-11b-vision-instruct".to_string(),
+        // Unset in tests — no real key to call out with, so `/api/ocr` is 404.
+        ocr_llm_api_key: None,
+        ocr_llm_max_tokens: 2048,
+        ocr_llm_timeout_secs: 60,
     }
 }

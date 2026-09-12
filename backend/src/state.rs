@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     application::{
-        api_client::service::ApiClientService, auth::service::AuthService,
+        api_client::service::ApiClientService, auth::service::AuthService, ocr::OcrClient,
         processing::service::ProcessingService,
     },
     config::Config,
@@ -25,4 +25,7 @@ pub struct AppState {
     /// The Postgres pool, when persistence is enabled. Used by the readiness
     /// probe (`GET /health/ready`); `None` in the in-memory configuration.
     pub db_pool: Option<sqlx::PgPool>,
+    /// Vision-LLM OCR (`POST /api/ocr`). `None` when `OCR_LLM_API_KEY` is
+    /// unset — the route then answers 503 instead of half-working.
+    pub ocr: Option<OcrClient>,
 }

@@ -12,7 +12,7 @@ use tower_http::{
 };
 
 use super::handlers::{
-    api_clients, auth, batch, dashboard, ext_auth, generate, jobs, jobs_admin, meta, pdf,
+    api_clients, auth, batch, dashboard, ext_auth, generate, jobs, jobs_admin, meta, ocr, pdf,
     permissions, process, process_ops, roles, users,
 };
 use super::middleware::security;
@@ -72,6 +72,8 @@ pub fn build(state: Arc<AppState>) -> Router {
         .route("/api/pdf/forms", post(pdf::forms))
         .route("/api/pdf/split", post(pdf::split))
         .route("/api/pdf/merge", post(pdf::merge))
+        // Vision-LLM OCR — 503 unless OCR_LLM_API_KEY is set
+        .route("/api/ocr", post(ocr::handle))
         .route("/api/process/batch", post(batch::handle))
         .route("/api/jobs/:id", get(jobs::handle))
         .route("/api/jobs/:id/results", get(jobs::results))
