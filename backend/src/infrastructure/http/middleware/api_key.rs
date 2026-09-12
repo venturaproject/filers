@@ -12,6 +12,7 @@ use crate::{
         processing::entities::JobOrigin,
     },
     errors::AppError,
+    infrastructure::http::cookie::{self, SESSION_COOKIE},
     state::AppState,
 };
 
@@ -21,6 +22,14 @@ pub enum ApiPrincipal {
     Service,
     /// A dashboard user's personal `api_key` — full access.
     User(Box<User>),
+    /// A dashboard user authenticated by their admin-panel session cookie
+    /// (no personal `api_key` involved) — same full access as [`Self::User`],
+    /// traced with `JobOrigin::Admin` instead of `JobOrigin::ApiKey` so the
+    /// job history can tell "called through the panel" apart from "called
+    /// with a personal key". This is what lets the admin's own sanity-check
+    /// tools (Procesar archivo, the OCR/extract tester) call these endpoints
+    /// without the browser ever handling an API key.
+    Session(Box<User>),
     /// An external OAuth2 client (`Authorization: Bearer <access_token>`).
     /// Scope / rate-limit / quota are enforced by the handler via
     /// `state.api_clients.authorize(...)`.
@@ -44,6 +53,7 @@ impl ApiPrincipal {
         match self {
             ApiPrincipal::Service => (JobOrigin::Service, None),
             ApiPrincipal::User(u) => (JobOrigin::ApiKey, Some(u.email.clone())),
+            ApiPrincipal::Session(u) => (JobOrigin::Admin, Some(u.email.clone())),
             ApiPrincipal::Client { name, .. } => (JobOrigin::OauthClient, Some(name.clone())),
         }
     }
@@ -53,7 +63,7 @@ impl ApiPrincipal {
     pub fn owner_key(&self) -> Option<String> {
         match self {
             ApiPrincipal::Service => None,
-            ApiPrincipal::User(u) => Some(u.id.to_string()),
+            ApiPrincipal::User(u) | ApiPrincipal::Session(u) => Some(u.id.to_string()),
             ApiPrincipal::Client { id, .. } => Some(id.to_string()),
         }
     }
@@ -62,7 +72,7 @@ impl ApiPrincipal {
     /// and admin users.
     pub fn is_privileged(&self) -> bool {
         matches!(self, ApiPrincipal::Service)
-            || matches!(self, ApiPrincipal::User(u) if u.role == Role::Admin)
+            || matches!(self, ApiPrincipal::User(u) | ApiPrincipal::Session(u) if u.role == Role::Admin)
     }
 }
 
@@ -83,18 +93,24 @@ impl FromRequestParts<Arc<AppState>> for ApiPrincipal {
             });
         }
 
-        let key = api_key(&parts.headers).ok_or(AppError::Unauthorized)?;
-
-        if let Some(user) = state.auth.users.find_by_api_key(key).await? {
-            if user.status != UserStatus::Active {
-                return Err(AppError::Unauthorized);
+        if let Some(key) = api_key(&parts.headers) {
+            if let Some(user) = state.auth.users.find_by_api_key(key).await? {
+                if user.status != UserStatus::Active {
+                    return Err(AppError::Unauthorized);
+                }
+                return Ok(ApiPrincipal::User(Box::new(user)));
             }
-            return Ok(ApiPrincipal::User(Box::new(user)));
+            if state.config.is_valid_key(key) {
+                return Ok(ApiPrincipal::Service);
+            }
+            return Err(AppError::Unauthorized);
         }
-        if state.config.is_valid_key(key) {
-            return Ok(ApiPrincipal::Service);
-        }
-        Err(AppError::Unauthorized)
+
+        // No key/token at all — the caller may still be the admin panel
+        // itself, authenticated by its own session cookie.
+        let token = cookie::read(&parts.headers, SESSION_COOKIE).ok_or(AppError::Unauthorized)?;
+        let user = state.auth.authenticate(&token).await?;
+        Ok(ApiPrincipal::Session(Box::new(user)))
     }
 }
 

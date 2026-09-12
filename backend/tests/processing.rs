@@ -23,6 +23,23 @@ async fn processing_requires_a_key() {
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
 }
 
+/// The admin panel's own sanity-check tools (Procesar archivo, the OCR/extract
+/// tester) call these endpoints with nothing but the browser's session
+/// cookie — no personal `api_key`, no service key. `ApiPrincipal` falls back
+/// to the session when neither a bearer token nor `x-api-key` is present.
+#[tokio::test]
+async fn a_logged_in_session_can_call_process_without_any_api_key() {
+    let mut app = TestApp::new();
+    assert!(app.login_admin().await.ok());
+    let r = app
+        .post_files(
+            "/api/process",
+            &[("file", "c.csv", "text/csv", &csv_bytes())],
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+}
+
 #[tokio::test]
 async fn parses_csv_with_service_key() {
     let mut app = TestApp::new();
