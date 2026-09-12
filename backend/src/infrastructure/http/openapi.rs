@@ -98,8 +98,9 @@ pub struct BatchBody {
 pub struct ExtractForm {
     #[schema(value_type = String, format = Binary)]
     pub file: String,
-    /// JSON string: `{ "instruction": "...", "fields": ["name", "qty", ...] }`.
-    /// Omit for the default (line items as name/quantity/unit_price/total).
+    /// JSON string: `{ "instruction": "...", "fields": ["name", "qty", ...],
+    /// "redact_pii": false }`. Omit for the default (line items as
+    /// name/quantity/unit_price/total, no redaction).
     pub schema: Option<String>,
 }
 

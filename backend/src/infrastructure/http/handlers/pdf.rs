@@ -288,6 +288,13 @@ pub struct ExtractSchema {
     pub instruction: String,
     #[serde(default = "default_fields")]
     pub fields: Vec<String>,
+    /// Best-effort mask emails/IBANs/card numbers/Spanish DNI-NIE/phone
+    /// numbers in the document text before it reaches the model. Off by
+    /// default: if `fields` itself asks for contact info, redaction would
+    /// blank out exactly what's being extracted — opt in only when the
+    /// surrounding document carries PII the caller doesn't need.
+    #[serde(default)]
+    pub redact_pii: bool,
 }
 
 impl Default for ExtractSchema {
@@ -295,6 +302,7 @@ impl Default for ExtractSchema {
         Self {
             instruction: default_instruction(),
             fields: default_fields(),
+            redact_pii: false,
         }
     }
 }
@@ -374,7 +382,12 @@ pub async fn extract(
     }
 
     let result = client
-        .extract(&document_text, &schema.instruction, &schema.fields)
+        .extract(
+            &document_text,
+            &schema.instruction,
+            &schema.fields,
+            schema.redact_pii,
+        )
         .await;
     let items = result.as_ref().map(|r| r.items.len() as u64).unwrap_or(0);
     trace(

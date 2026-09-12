@@ -15,6 +15,8 @@
 //! Either way the upstream API key lives only on this server — a caller
 //! authenticates against *this* API's own scopes, never against NVIDIA's.
 
+pub mod pii;
+
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -55,6 +57,9 @@ pub struct ExtractResult {
     /// budget (`OCR_LLM_MAX_INPUT_CHARS`) — items past that point were never
     /// seen.
     pub truncated_input: bool,
+    /// How many PII matches [`pii::redact`] masked before this text left the
+    /// server. `0` when `redact_pii` wasn't requested.
+    pub pii_redactions: usize,
 }
 
 /// Sniff the handful of image formats a vision model accepts, by magic bytes
@@ -161,14 +166,17 @@ impl OcrClient {
         document_text: &str,
         instruction: &str,
         fields: &[String],
+        redact: bool,
     ) -> AppResult<ExtractResult> {
-        let (input, truncated_input) = if document_text.chars().count() > self.max_input_chars {
-            (
-                document_text.chars().take(self.max_input_chars).collect(),
-                true,
-            )
+        let (redacted, pii_redactions) = if redact {
+            pii::redact(document_text)
         } else {
-            (document_text.to_string(), false)
+            (document_text.to_string(), 0)
+        };
+        let (input, truncated_input) = if redacted.chars().count() > self.max_input_chars {
+            (redacted.chars().take(self.max_input_chars).collect(), true)
+        } else {
+            (redacted, false)
         };
         let field_list = fields.join(", ");
         let prompt = format!(
@@ -193,6 +201,7 @@ impl OcrClient {
             model,
             usage,
             truncated_input,
+            pii_redactions,
         })
     }
 

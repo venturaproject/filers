@@ -368,10 +368,11 @@ than matching a fixed template) and asks the model to return it as the
 caller's requested shape.
 
 Field `file`, optional field `schema` (JSON: `{ "instruction": "...", "fields":
-["name", "quantity", ...] }` — omit for the default, line items as
-`name`/`quantity`/`unit_price`/`total`). → `{ items: [ {...} ], model, usage,
-truncated_input }`. `422` when the PDF has no extractable text (a scanned
-document — this needs `pdf::text`, which doesn't OCR; see below).
+["name", "quantity", ...], "redact_pii": false }` — omit for the default, line
+items as `name`/`quantity`/`unit_price`/`total`, no redaction). → `{ items: [
+{...} ], model, usage, truncated_input, pii_redactions }`. `422` when the PDF
+has no extractable text (a scanned document — this needs `pdf::text`, which
+doesn't OCR; see below).
 
 ```bash
 curl -s -X POST http://localhost:8085/api/pdf/extract \
@@ -382,7 +383,15 @@ curl -s -X POST http://localhost:8085/api/pdf/extract \
 ```
 
 Same third-party data-flow note as OCR below — the document's *text* leaves
-this server, not an image.
+this server, not an image. `"redact_pii": true` masks emails, IBANs, card
+numbers, Spanish DNI/NIE and phone numbers in that text *before* it's sent —
+pattern-matching, best-effort, **off by default** because it's a real
+trade-off: if `fields` itself asks for contact info, redacting the source
+would blank out exactly what's being extracted. Turn it on when the document
+carries PII the caller doesn't need (a customer's address block above a table
+of line items) and leave it off when the fields being extracted are
+themselves the PII. `pii_redactions` in the response says how many matches it
+masked, so a caller can sanity-check it did something.
 
 ---
 
@@ -551,10 +560,15 @@ server also drains in-flight requests on SIGTERM / Ctrl-C before exiting.
 - `/api/ocr` and `/api/pdf/extract` are a deliberate trust-boundary crossing —
   the image (or the document's text) is relayed to a third-party model
   provider (off by default; opt in with `OCR_LLM_API_KEY`). EXIF/XMP/IPTC (GPS,
-  device serial, timestamp) is stripped from JPEG/PNG before upload —
-  best-effort, and it does **not** redact content baked into the pixels
-  (faces, ID numbers) or the document text. Job history keeps only the
-  filename, never the image, the document text, or the model's response
+  device serial, timestamp) is stripped from JPEG/PNG before upload, always;
+  `/api/pdf/extract`'s `redact_pii` additionally masks emails/IBANs/card
+  numbers/Spanish DNI-NIE/phone numbers in the document text, opt-in per
+  request (see [OCR](#ocr)/[PDF](#pdf) — a blanket default would fight the
+  endpoint's own purpose whenever the requested fields are themselves contact
+  info). None of this redacts content baked into an image's pixels (faces, ID
+  numbers) — that would need a detection/blur pipeline, which isn't built.
+  Job history keeps only the filename, never the image, the document text, or
+  the model's response
 
 ---
 
