@@ -92,6 +92,17 @@ pub struct BatchBody {
     pub output: Option<serde_json::Value>,
 }
 
+/// `multipart/form-data` body: a PDF plus an optional extraction `schema`.
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct ExtractForm {
+    #[schema(value_type = String, format = Binary)]
+    pub file: String,
+    /// JSON string: `{ "instruction": "...", "fields": ["name", "qty", ...] }`.
+    /// Omit for the default (line items as name/quantity/unit_price/total).
+    pub schema: Option<String>,
+}
+
 /// `multipart/form-data` body: an image plus an optional OCR instruction.
 #[derive(utoipa::ToSchema)]
 #[allow(dead_code)]
@@ -173,6 +184,7 @@ impl Modify for SecurityAddon {
         crate::infrastructure::http::handlers::pdf::forms,
         crate::infrastructure::http::handlers::pdf::split,
         crate::infrastructure::http::handlers::pdf::merge,
+        crate::infrastructure::http::handlers::pdf::extract,
         crate::infrastructure::http::handlers::ocr::handle,
         crate::infrastructure::http::handlers::batch::handle,
         crate::infrastructure::http::handlers::jobs::handle,
@@ -184,7 +196,7 @@ impl Modify for SecurityAddon {
     components(schemas(
         ParsedFile, ParseOptions, ParseStats, ParseError, Timings, FileFormat,
         UploadForm, SchemaFileForm, SpecFileForm, PipelineFileForm, DiffForm, MergeForm,
-        OcrForm, BatchBody, TokenBody, RefreshBody,
+        ExtractForm, OcrForm, BatchBody, TokenBody, RefreshBody,
         crate::application::processing::operations::generate::XlsxRequest,
         crate::application::processing::operations::generate::XlsxOptions,
         crate::application::processing::pdf::info::PdfInfo,
@@ -195,6 +207,7 @@ impl Modify for SecurityAddon {
         crate::application::processing::pdf::forms::FormResult,
         crate::application::processing::pdf::forms::Field,
         crate::application::ocr::OcrResult,
+        crate::application::ocr::ExtractResult,
         crate::application::ocr::Usage,
     )),
     tags(

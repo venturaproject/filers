@@ -57,7 +57,7 @@ export type JobKind = 'sync' | 'batch'
 export type JobOrigin = 'api_key' | 'oauth_client' | 'admin' | 'service'
 export type Operation =
   | 'parse' | 'profile' | 'validate' | 'convert' | 'transform' | 'pipeline' | 'batch'
-  | 'pdf_info' | 'pdf_text' | 'pdf_forms' | 'pdf_split' | 'pdf_merge'
+  | 'pdf_info' | 'pdf_text' | 'pdf_forms' | 'pdf_split' | 'pdf_merge' | 'pdf_extract'
   | 'ocr'
 
 export interface FileResult {

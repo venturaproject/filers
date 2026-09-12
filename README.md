@@ -60,7 +60,7 @@ the response, offloading the heavy lifting to Rust.
 - Optional Postgres persistence (users, sessions, API clients, tokens, job
   history, RBAC catalogue); optional Redis-shared rate limiters
 - Full job history + a monitoring dashboard (throughput, p95, error rate, 24h timeline)
-- PDF: info / text / forms / split / merge (pure Rust). Gated OpenAPI spec + Scalar and Swagger UI
+- PDF: info / text / forms / split / merge (pure Rust), plus LLM-powered `extract` (any layout → the caller's requested JSON shape). Gated OpenAPI spec + Scalar and Swagger UI
 - OCR: text extraction from an image via a vision LLM (off unless `OCR_LLM_API_KEY` is set)
 - Liveness / readiness probes, graceful shutdown, startup job reconciliation
 - nginx as the single entrypoint (dev and prod)
@@ -158,6 +158,7 @@ All via environment (`.env` in dev). See `.env.example` for the annotated list.
 | `ENABLE_API_DOCS` | – | serve `/api/openapi.json` + `/api/docs` (Scalar) + `/api/swagger`. Unset → on outside production, off in production. `true`/`false` forces it |
 | `OCR_LLM_BASE_URL` / `_MODEL` / `_API_KEY` | NVIDIA NIM / `meta/llama-3.2-11b-vision-instruct` / – | vision-LLM `/chat/completions` host for `POST /api/ocr`; empty key → route answers `503` |
 | `OCR_LLM_MAX_TOKENS` / `_TIMEOUT_SECS` | `2048` / `60` | server-side ceiling on a caller's `max_tokens`; upstream request timeout |
+| `OCR_LLM_MAX_INPUT_CHARS` | `24000` | ceiling on the document text sent to `POST /api/pdf/extract`; the rest is dropped (`truncated_input: true`) |
 | `APP_NAME` | `Filers` | public name at `GET /api/v1/config` |
 | `SESSION_COOKIE_SECURE` | `false` | add `Secure` to the session cookie + emit HSTS (enable behind HTTPS) |
 | `SEED_USER_EMAIL` / `_PASSWORD` / `_NAME` / `_API_KEY` | `admin@filers.test` / `admin1234` / `Admin` / first `API_KEYS` | seeded admin account |
@@ -210,7 +211,7 @@ Access token lives 1 h, refresh token 30 d. Each client has a **scope**
 | --- | --- |
 | `files:read` | `profile`, `validate`, `diff`, reading jobs, `pdf/{info,text,forms}` |
 | `files:write` | `process`, `convert`, `transform`, `pipeline`, `batch`, `generate/xlsx`, `pdf/{split,merge}` |
-| `ocr:read` | `POST /api/ocr` — aliased to `files:read`, so any `files:*` client already has it |
+| `ocr:read` | `POST /api/ocr`, `POST /api/pdf/extract` — aliased to `files:read`, so any `files:*` client already has it |
 
 ---
 
@@ -357,6 +358,31 @@ one-page PDFs.
 ### `POST /api/pdf/merge`
 
 Repeat the `file` part two or more times → the concatenated PDF.
+
+### `POST /api/pdf/extract`
+
+The other side of the LLM integration below: not transcription, *reading*.
+Pulls the document's text out with `pdf::text` (any layout — an invoice, a
+purchase order, a plain letter — since the model reads it semantically rather
+than matching a fixed template) and asks the model to return it as the
+caller's requested shape.
+
+Field `file`, optional field `schema` (JSON: `{ "instruction": "...", "fields":
+["name", "quantity", ...] }` — omit for the default, line items as
+`name`/`quantity`/`unit_price`/`total`). → `{ items: [ {...} ], model, usage,
+truncated_input }`. `422` when the PDF has no extractable text (a scanned
+document — this needs `pdf::text`, which doesn't OCR; see below).
+
+```bash
+curl -s -X POST http://localhost:8085/api/pdf/extract \
+  -H "x-api-key: dev-key" \
+  -F "file=@invoice.pdf" \
+  -F 'schema={"instruction":"every line item","fields":["product","qty","price"]}' \
+  | jq .items
+```
+
+Same third-party data-flow note as OCR below — the document's *text* leaves
+this server, not an image.
 
 ---
 
@@ -522,12 +548,13 @@ server also drains in-flight requests on SIGTERM / Ctrl-C before exiting.
   only)
 - Job reads scoped to the creator (404, no existence oracle)
 - Security headers middleware; HSTS when `SESSION_COOKIE_SECURE=true`
-- `/api/ocr` is a deliberate trust-boundary crossing — the image is relayed to
-  a third-party model provider (off by default; opt in with `OCR_LLM_API_KEY`).
-  EXIF/XMP/IPTC (GPS, device serial, timestamp) is stripped from JPEG/PNG
-  before upload — best-effort, and it does **not** redact content baked into
-  the pixels (faces, ID numbers). Job history keeps only the filename, never
-  the image or the transcribed text
+- `/api/ocr` and `/api/pdf/extract` are a deliberate trust-boundary crossing —
+  the image (or the document's text) is relayed to a third-party model
+  provider (off by default; opt in with `OCR_LLM_API_KEY`). EXIF/XMP/IPTC (GPS,
+  device serial, timestamp) is stripped from JPEG/PNG before upload —
+  best-effort, and it does **not** redact content baked into the pixels
+  (faces, ID numbers) or the document text. Job history keeps only the
+  filename, never the image, the document text, or the model's response
 
 ---
 

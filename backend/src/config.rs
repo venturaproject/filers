@@ -65,6 +65,10 @@ pub struct Config {
     /// for — a cost guard against a runaway request.
     pub ocr_llm_max_tokens: u32,
     pub ocr_llm_timeout_secs: u64,
+    /// Ceiling on the document text sent to `POST /api/pdf/extract` — the
+    /// rest is silently dropped (`truncated_input: true` in the response)
+    /// rather than blowing the model's input budget.
+    pub ocr_llm_max_input_chars: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -206,6 +210,11 @@ impl Config {
                 .and_then(|v| v.trim().parse().ok())
                 .filter(|n| *n > 0)
                 .unwrap_or(60),
+            ocr_llm_max_input_chars: env::var("OCR_LLM_MAX_INPUT_CHARS")
+                .ok()
+                .and_then(|v| v.trim().parse().ok())
+                .filter(|n| *n > 0)
+                .unwrap_or(24_000),
         }
     }
 
@@ -392,6 +401,7 @@ mod tests {
             ocr_llm_api_key: None,
             ocr_llm_max_tokens: 2048,
             ocr_llm_timeout_secs: 60,
+            ocr_llm_max_input_chars: 24_000,
         }
     }
 

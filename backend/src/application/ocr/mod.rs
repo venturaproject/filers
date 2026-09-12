@@ -1,14 +1,19 @@
-//! `POST /api/ocr` — text extraction from an image via a vision-capable LLM
-//! behind an OpenAI-compatible `/chat/completions` endpoint (NVIDIA NIM by
-//! default: <https://integrate.api.nvidia.com/v1>, model
+//! `POST /api/ocr` and `POST /api/pdf/extract` — an LLM behind an
+//! OpenAI-compatible `/chat/completions` endpoint (NVIDIA NIM by default:
+//! <https://integrate.api.nvidia.com/v1>, model
 //! `meta/llama-3.2-11b-vision-instruct`; any other host speaking the same
-//! shape works too).
+//! shape works too), used two ways:
 //!
-//! This is a genuine OCR path, unlike `pdf::text` (which only reads a PDF's
-//! text-showing operators and yields nothing on a scanned page): the image is
-//! base64-inlined into the request and the model transcribes what it sees.
-//! The upstream API key lives only on this server — a caller authenticates
-//! against *this* API's own scopes, never against NVIDIA's.
+//! - [`OcrClient::run`] — an image, base64-inlined, transcribed verbatim.
+//!   A genuine OCR path, unlike `pdf::text` (which only reads a PDF's
+//!   text-showing operators and yields nothing on a scanned page).
+//! - [`OcrClient::extract`] — a document's *text* (already pulled out by
+//!   `pdf::text`), read semantically and returned as the caller's requested
+//!   fields — a line-item table, a set of contacts, whatever they describe —
+//!   regardless of how that particular document happens to be laid out.
+//!
+//! Either way the upstream API key lives only on this server — a caller
+//! authenticates against *this* API's own scopes, never against NVIDIA's.
 
 use std::time::Duration;
 
@@ -37,6 +42,21 @@ pub struct Usage {
     pub total_tokens: u32,
 }
 
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ExtractResult {
+    /// One object per item the model found, each ideally carrying the
+    /// requested `fields` — the model is asked to, not schema-enforced, so
+    /// sanity-check a caller-facing use.
+    #[schema(value_type = Vec<Object>)]
+    pub items: Vec<serde_json::Value>,
+    pub model: String,
+    pub usage: Option<Usage>,
+    /// The document's text had to be cut down to fit the model's input
+    /// budget (`OCR_LLM_MAX_INPUT_CHARS`) — items past that point were never
+    /// seen.
+    pub truncated_input: bool,
+}
+
 /// Sniff the handful of image formats a vision model accepts, by magic bytes
 /// — never trust a client-supplied `Content-Type`. `None` for anything else
 /// (including a PDF: rasterising pages is out of scope here).
@@ -61,6 +81,7 @@ pub struct OcrClient {
     api_key: String,
     default_model: String,
     max_tokens_cap: u32,
+    max_input_chars: usize,
 }
 
 impl OcrClient {
@@ -79,6 +100,7 @@ impl OcrClient {
             api_key,
             default_model: config.ocr_llm_model.clone(),
             max_tokens_cap: config.ocr_llm_max_tokens,
+            max_input_chars: config.ocr_llm_max_input_chars,
         })
     }
 
@@ -109,16 +131,82 @@ impl OcrClient {
             .unwrap_or(self.max_tokens_cap)
             .min(self.max_tokens_cap);
 
+        let content = vec![
+            UpstreamContent::Text { text: prompt },
+            UpstreamContent::ImageUrl {
+                image_url: UpstreamImageUrl { url: &data_url },
+            },
+        ];
+        let (model, text, finish_reason, usage) = self.complete(content, max_tokens).await?;
+        Ok(OcrResult {
+            model,
+            text: text.trim().to_string(),
+            finish_reason,
+            usage,
+        })
+    }
+
+    /// Read `document_text` (already pulled out of a PDF by `pdf::text`, or
+    /// any other plain text) and return one JSON object per item the model
+    /// finds, each carrying `fields`. `instruction` says what to look for
+    /// (e.g. "every product / line item mentioned").
+    ///
+    /// This is prompt-engineered rather than relying on a provider-specific
+    /// "JSON mode" — an OpenAI-compatible `response_format` parameter isn't
+    /// honoured the same way by every model NIM (or another host) might
+    /// serve, so staying host-agnostic means asking in the prompt and parsing
+    /// leniently (stripping a markdown fence, tolerating a bare array).
+    pub async fn extract(
+        &self,
+        document_text: &str,
+        instruction: &str,
+        fields: &[String],
+    ) -> AppResult<ExtractResult> {
+        let (input, truncated_input) = if document_text.chars().count() > self.max_input_chars {
+            (
+                document_text.chars().take(self.max_input_chars).collect(),
+                true,
+            )
+        } else {
+            (document_text.to_string(), false)
+        };
+        let field_list = fields.join(", ");
+        let prompt = format!(
+            "You extract structured data from documents. Read the document \
+             text below and reply with ONLY a JSON object of the exact shape \
+             {{\"items\": [ {{...}}, ... ]}} — one object per distinct item \
+             you find, each using exactly these fields: {field_list}. Use \
+             null for a field you cannot find for a given item. Reply \
+             {{\"items\": []}} if you find nothing. No commentary, no \
+             markdown code fence — the JSON object and nothing else.\n\n\
+             What to extract: {instruction}\n\n\
+             Document text:\n\"\"\"\n{input}\n\"\"\"",
+        );
+
+        let content = vec![UpstreamContent::Text { text: &prompt }];
+        let (model, text, _finish_reason, usage) =
+            self.complete(content, self.max_tokens_cap).await?;
+        let items = parse_items(&text)?;
+
+        Ok(ExtractResult {
+            items,
+            model,
+            usage,
+            truncated_input,
+        })
+    }
+
+    /// POST one `/chat/completions` call and unwrap the first choice.
+    async fn complete(
+        &self,
+        content: Vec<UpstreamContent<'_>>,
+        max_tokens: u32,
+    ) -> AppResult<(String, String, Option<String>, Option<Usage>)> {
         let body = UpstreamRequest {
             model: &self.default_model,
             messages: &[UpstreamMessage {
                 role: "user",
-                content: vec![
-                    UpstreamContent::Text { text: prompt },
-                    UpstreamContent::ImageUrl {
-                        image_url: UpstreamImageUrl { url: &data_url },
-                    },
-                ],
+                content,
             }],
             max_tokens,
             temperature: 0.0,
@@ -153,21 +241,44 @@ impl OcrClient {
             AppError::Internal(anyhow::anyhow!("OCR upstream returned no choices"))
         })?;
 
-        Ok(OcrResult {
-            model: parsed.model.unwrap_or_else(|| self.default_model.clone()),
-            text: choice
-                .message
-                .content
-                .unwrap_or_default()
-                .trim()
-                .to_string(),
-            finish_reason: choice.finish_reason,
-            usage: parsed.usage.map(|u| Usage {
+        Ok((
+            parsed.model.unwrap_or_else(|| self.default_model.clone()),
+            choice.message.content.unwrap_or_default(),
+            choice.finish_reason,
+            parsed.usage.map(|u| Usage {
                 prompt_tokens: u.prompt_tokens,
                 completion_tokens: u.completion_tokens,
                 total_tokens: u.total_tokens,
             }),
-        })
+        ))
+    }
+}
+
+/// Parse the model's reply into an item array — stripping a markdown fence if
+/// present, accepting either `{"items": [...]}` or a bare top-level array.
+fn parse_items(raw: &str) -> AppResult<Vec<serde_json::Value>> {
+    let cleaned = raw
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    let value: serde_json::Value = serde_json::from_str(cleaned).map_err(|e| {
+        let snippet: String = cleaned.chars().take(300).collect();
+        AppError::BadRequest(format!(
+            "the model did not return valid JSON ({e}): {snippet}"
+        ))
+    })?;
+
+    match value {
+        serde_json::Value::Array(items) => Ok(items),
+        serde_json::Value::Object(mut obj) => match obj.remove("items") {
+            Some(serde_json::Value::Array(items)) => Ok(items),
+            Some(other) => Ok(vec![other]),
+            None => Ok(vec![serde_json::Value::Object(obj)]),
+        },
+        other => Ok(vec![other]),
     }
 }
 
@@ -433,6 +544,37 @@ mod tests {
     #[test]
     fn png_strip_bails_out_on_garbage() {
         assert!(strip_png_metadata(b"not a png").is_none());
+    }
+
+    #[test]
+    fn parse_items_reads_the_requested_shape() {
+        let items = parse_items(r#"{"items": [{"name": "Widget", "qty": 3}]}"#).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["name"], "Widget");
+    }
+
+    #[test]
+    fn parse_items_strips_a_markdown_fence() {
+        let raw = "```json\n{\"items\": [{\"a\": 1}, {\"a\": 2}]}\n```";
+        let items = parse_items(raw).unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn parse_items_accepts_a_bare_array() {
+        let items = parse_items(r#"[{"a": 1}, {"a": 2}]"#).unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn parse_items_wraps_a_bare_object_as_one_item() {
+        let items = parse_items(r#"{"a": 1}"#).unwrap();
+        assert_eq!(items, vec![serde_json::json!({"a": 1})]);
+    }
+
+    #[test]
+    fn parse_items_rejects_non_json() {
+        assert!(parse_items("sure, here's the data: not json at all").is_err());
     }
 
     #[test]

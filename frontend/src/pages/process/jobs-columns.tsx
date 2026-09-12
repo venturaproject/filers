@@ -18,6 +18,7 @@ export const OPERATION_LABEL: Record<Operation, string> = {
   pdf_forms: 'PDF · formulario',
   pdf_split: 'PDF · dividir',
   pdf_merge: 'PDF · unir',
+  pdf_extract: 'PDF · extracción (IA)',
   ocr: 'OCR (visión)',
 }
 

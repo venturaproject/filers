@@ -336,5 +336,6 @@ pub fn test_config(batch_base_dir: impl Into<String>) -> Config {
         ocr_llm_api_key: None,
         ocr_llm_max_tokens: 2048,
         ocr_llm_timeout_secs: 60,
+        ocr_llm_max_input_chars: 24_000,
     }
 }

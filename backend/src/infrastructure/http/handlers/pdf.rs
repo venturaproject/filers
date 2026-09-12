@@ -14,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    application::processing::pdf,
+    application::{ocr, processing::pdf},
     domain::processing::entities::Timings,
     errors::{AppError, AppResult},
     infrastructure::http::{
@@ -277,6 +277,117 @@ pub async fn merge(
     let out = blocking(move || pdf::pages::merge(docs)).await;
     trace(&state, label, "pdf_merge", &principal, started, &out, 0).await;
     Ok(attachment("application/pdf", "merged.pdf", out?))
+}
+
+/// What to pull out of the document and how to shape each item. Sent as a
+/// JSON string in the `schema` field; omit it entirely for the default
+/// (extract line items as `{ name, quantity, unit_price, total }`).
+#[derive(Debug, Deserialize)]
+pub struct ExtractSchema {
+    #[serde(default = "default_instruction")]
+    pub instruction: String,
+    #[serde(default = "default_fields")]
+    pub fields: Vec<String>,
+}
+
+impl Default for ExtractSchema {
+    fn default() -> Self {
+        Self {
+            instruction: default_instruction(),
+            fields: default_fields(),
+        }
+    }
+}
+
+fn default_instruction() -> String {
+    "Every distinct product or line item mentioned in this document.".into()
+}
+
+fn default_fields() -> Vec<String> {
+    ["name", "quantity", "unit_price", "total"]
+        .into_iter()
+        .map(String::from)
+        .collect()
+}
+
+/// POST /api/pdf/extract  (multipart: `file`, optional JSON `schema` field)
+///
+/// Pulls the document's text out with `pdf::text` (any layout — an invoice,
+/// a purchase order, a plain letter — no OCR, so a scanned PDF is rejected
+/// up front rather than silently returning nothing) and asks the configured
+/// LLM to read it semantically into the caller's requested shape.
+#[utoipa::path(
+    post, path = "/api/pdf/extract", tag = "pdf",
+    request_body(content = crate::infrastructure::http::openapi::ExtractForm, content_type = "multipart/form-data"),
+    responses(
+        (status = 200, description = "Extracted items", body = ocr::ExtractResult),
+        (status = 400, description = "No extractable text (likely scanned), an invalid `schema`, or the model didn't return valid JSON"),
+        (status = 401, description = "Missing or invalid credentials"),
+        (status = 403, description = "Token lacks the `ocr:read` scope"),
+        (status = 503, description = "OCR/extraction is not configured on this server (`OCR_LLM_API_KEY` unset)"),
+    ),
+    security(("api_key" = []), ("bearer" = [])),
+)]
+pub async fn extract(
+    State(state): State<Arc<AppState>>,
+    principal: ApiPrincipal,
+    multipart: Multipart,
+) -> AppResult<Json<ocr::ExtractResult>> {
+    let Some(client) = state.ocr.as_ref() else {
+        return Err(AppError::ServiceUnavailable(
+            "OCR/extraction is not configured on this server".into(),
+        ));
+    };
+    authorize(&state, &principal, "ocr:read", true).await?;
+
+    let mp = read_multipart(&state, multipart).await?;
+    let (fname, bytes) = mp
+        .file("file")
+        .ok_or_else(|| AppError::BadRequest("missing `file` field".into()))?;
+    let filename = fname.to_string();
+    let bytes = bytes.to_vec();
+    let schema: ExtractSchema = match mp.field_string("schema") {
+        Some(s) if !s.trim().is_empty() => serde_json::from_str(&s)
+            .map_err(|e| AppError::BadRequest(format!("invalid `schema`: {e}")))?,
+        _ => ExtractSchema::default(),
+    };
+    if schema.fields.is_empty() {
+        return Err(AppError::BadRequest(
+            "schema.fields must not be empty".into(),
+        ));
+    }
+
+    let started = Instant::now();
+    let text = blocking(move || pdf::text::run(&bytes, None)).await?;
+    let document_text = text
+        .pages
+        .iter()
+        .map(|p| p.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if document_text.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "this PDF has no extractable text — likely a scanned document; \
+             page-image OCR isn't supported yet"
+                .into(),
+        ));
+    }
+
+    let result = client
+        .extract(&document_text, &schema.instruction, &schema.fields)
+        .await;
+    let items = result.as_ref().map(|r| r.items.len() as u64).unwrap_or(0);
+    trace(
+        &state,
+        filename,
+        "pdf_extract",
+        &principal,
+        started,
+        &result,
+        items,
+    )
+    .await;
+    Ok(Json(result?))
 }
 
 fn zip_files(files: Vec<(String, Vec<u8>)>) -> AppResult<Vec<u8>> {
