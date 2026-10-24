@@ -1,0 +1,9 @@
+overrides:
+  '@babel/core': ^7.29.6
+  baseline-browser-mapping: ^2.11.0
+  browserslist: ^4.28.7
+  follow-redirects: ^1.16.1
+  prosemirror-view: ^1.42.3
+  prosemirror-model: ^1.25.12
+  react-router: ^7.18.4
+  source-map-js: ^1.2.2

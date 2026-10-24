@@ -57,12 +57,8 @@ export function AccountForm() {
       .max(30, {
         message: t('name_max_length'),
       }),
-    dob: z.date({
-      required_error: t('dob_required'),
-    }),
-    language: z.string({
-      required_error: t('language_required'),
-    }),
+    dob: z.date({ error: t('dob_required') }),
+    language: z.string({ error: t('language_required') }),
   })
 
   type AccountFormValues = z.infer<typeof accountFormSchema>
