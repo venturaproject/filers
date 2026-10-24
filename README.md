@@ -537,7 +537,7 @@ through `/api/v1/roles` and `/api/v1/permissions` survive a restart. The `admin`
 role cannot be deleted.
 
 Migrations in `backend/migrations/` run automatically on connect (`sqlx::migrate!`).
-Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:17-alpine` and
+Both `compose.dev.yml` and `compose.prod.yml` ship a `postgres:18-alpine` and
 point the API at it by default; set `DATABASE_URL` in `.env` to use an external
 instance instead.
 
@@ -651,7 +651,7 @@ cp .env.example .env
 make prod-up      # postgres + redis + api + nginx (80/443), only nginx exposed
 ```
 
-`compose.prod.yml` runs four services: a bundled **`postgres:17-alpine`** (named
+`compose.prod.yml` runs four services: a bundled **`postgres:18-alpine`** (named
 volume `postgres-data`), a bundled **`redis:7-alpine`** (rate-limiter state, no
 persistence), the **API** (health-checked, waits for both to be healthy), and
 **nginx** — the only one with published ports. Postgres, Redis and the API sit

@@ -12,7 +12,7 @@ services:
   # Persistence for users / sessions / API clients / tokens. The API only uses
   # it when DATABASE_URL is set in .env — leave it unset for a pure in-memory run.
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-filers}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-filers}
