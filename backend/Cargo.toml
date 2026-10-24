@@ -41,12 +41,12 @@ sqlx = { version = "0.8", default-features = false, features = [
     "migrate",
 ] }
 
-calamine        = { version = "0.36", features = ["dates"] }
+calamine        = { version = "0.37", features = ["dates"] }
 csv             = "1"
-zip             = { version = "2.4", default-features = false, features = ["deflate"] }
+zip             = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml       = "0.42"
 regex           = "1"
-rust_xlsxwriter = "0.89"
+rust_xlsxwriter = "0.101"
 reqwest         = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 hmac            = "0.12"
 
@@ -65,7 +65,6 @@ libc   = "0.2"
 
 # PDF processing (/api/pdf/*)
 lopdf       = "0.45"
-pdf-extract = "0.12"
 
 [dev-dependencies]
 tower           = { version = "0.5", features = ["util"] }
