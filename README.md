@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./doc/filers-banner.png" alt="Filers — high-performance file processing" width="100%" />
+</p>
+
 # Filers
 
 Fast spreadsheet processing API in Rust (axum) with a React admin panel.
@@ -30,6 +34,7 @@ the response, offloading the heavy lifting to Rust.
 - [Development](#development)
 - [Production](#production)
 - [Project layout](#project-layout)
+- [Technical documentation](#technical-documentation)
 
 ---
 
@@ -96,6 +101,12 @@ backend/src/
 **Stack:** Rust 2024 · axum 0.7 · tokio · sqlx 0.8 (Postgres) · redis · calamine
 · quick-xml · rayon · argon2 · utoipa. Frontend: React · Vite · TanStack
 Query/Table · shadcn/ui · Tailwind · recharts.
+
+## Technical documentation
+
+Implementation and architecture notes live in [`doc/`](doc/README.md):
+[system architecture](doc/architecture.md), [backend](doc/backend.md),
+[frontend](doc/frontend.md), and [operations/security](doc/operations.md).
 
 ---
 
@@ -683,6 +694,8 @@ disk (`BATCH_BASE_DIR`) — mount shared storage or run batch on a single replic
 │   ├── Cargo.toml / Cargo.lock
 │   └── uploads/                batch results (BATCH_BASE_DIR), git-ignored
 ├── frontend/                   React admin panel (Vite)
+├── doc/                        technical and architecture documentation
+│   └── filers-banner.png       documentation banner
 ├── infrastructure/
 │   ├── Dockerfile              API release image (builds ./backend)
 │   ├── Dockerfile.dev          API dev image (cargo-watch)
