@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <meta name="description" content="Filers is a high-performance file processing API for spreadsheets and PDFs, with a React admin panel. Built with Rust.">
+  <title>Filers — process files faster</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{color-scheme:dark;--bg:#07111f;--panel:#0d1b2b;--line:#1e344a;--text:#edf5ff;--muted:#9bb0c5;--accent:#36b9ff;--accent2:#25d1c2;--mono:'DM Mono',monospace;--sans:'Manrope',sans-serif}
+    [data-theme="light"]{color-scheme:light;--bg:#f4f8fc;--panel:#fff;--line:#d8e4ef;--text:#10243a;--muted:#587086;--accent:#087fc2;--accent2:#058c80}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}a{color:inherit;text-decoration:none}.wrap{width:min(1120px,calc(100% - 48px));margin:auto}
+    header{height:76px;border-bottom:1px solid var(--line);display:flex;align-items:center}.nav{display:flex;align-items:center;justify-content:space-between}.brand{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:800;letter-spacing:-1px}.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(140deg,var(--accent),#2671ff);color:#061322;font:500 17px var(--mono)}.links{display:flex;gap:22px;align-items:center;color:var(--muted);font-size:12px}.links a:hover{color:var(--text)}.github{border:1px solid var(--line);padding:10px 14px;border-radius:5px;color:var(--text)}.theme-toggle{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:5px;padding:9px 11px;font:11px var(--mono);cursor:pointer}.theme-toggle:hover,.github:hover{border-color:var(--accent)}
+    .hero{padding:105px 0 90px;position:relative;overflow:hidden}.hero:after{content:"";position:absolute;width:620px;height:620px;right:-90px;top:-30px;background:radial-gradient(circle,#168bd51a,transparent 68%);pointer-events:none}.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:50px;align-items:center;position:relative;z-index:1}.eyebrow,.kicker{font:10px var(--mono);letter-spacing:1.8px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px}.eyebrow:before{content:"";width:23px;height:1px;background:var(--accent)}h1{font-size:clamp(52px,7vw,82px);letter-spacing:-.075em;line-height:.99;margin:25px 0 23px;font-weight:700}h1 span{color:var(--accent)}.lead{font-size:16px;line-height:1.8;color:var(--muted);max-width:550px}.actions{display:flex;gap:12px;margin-top:31px;flex-wrap:wrap}.button{padding:13px 18px;border-radius:5px;font-size:12px;font-weight:800;transition:transform .15s,border-color .15s}.button:hover{transform:translateY(-2px)}.primary{background:var(--accent);color:#061322}.secondary{border:1px solid var(--line)}.secondary:hover{border-color:var(--accent)}
+    .terminal{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 24px 85px #0005;overflow:hidden}.termbar{height:43px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 15px;gap:7px}.dot{width:8px;height:8px;border-radius:50%;background:#ff6677}.dot:nth-child(2){background:#ffc14e}.dot:nth-child(3){background:#42d392}.termname{font:10px var(--mono);color:var(--muted);margin-left:8px}.live{margin-left:auto;color:var(--accent2);font:9px var(--mono);letter-spacing:1px}.termcontent{padding:22px 24px;font:11px/2.1 var(--mono);color:var(--muted);overflow:auto}.prompt{color:var(--accent2)}.termcontent .key{color:#d7eaff}.termcontent .value{color:#ffd479}.term-foot{border-top:1px solid var(--line);padding:13px 20px;font:10px var(--mono);color:var(--muted);display:flex;justify-content:space-between;gap:15px}.ok{color:var(--accent2)}
+    .strip{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:19px 0}.strip .wrap{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;color:var(--muted);font:10px var(--mono);letter-spacing:1px;text-transform:uppercase}.strip strong{color:var(--text);font-weight:500}
+    section.content{padding:87px 0}.section-head{display:flex;align-items:end;justify-content:space-between;gap:30px;margin-bottom:31px}h2{font-size:clamp(31px,4vw,46px);letter-spacing:-.06em;line-height:1.12;margin:12px 0 0;font-weight:700}.section-note{max-width:330px;color:var(--muted);font-size:12px;line-height:1.8}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{padding:23px;background:var(--panel);border:1px solid var(--line);border-radius:6px;min-height:170px}.icon{font:10px var(--mono);letter-spacing:1px;color:var(--accent);margin-bottom:24px}.card h3{font-size:14px;margin:0 0 9px}.card p{font-size:11px;line-height:1.8;color:var(--muted);margin:0}.architecture{display:grid;grid-template-columns:1fr 1fr;gap:12px}.arch-card{padding:23px;background:var(--panel);border:1px solid var(--line);border-radius:6px}.arch-card h3{margin:0 0 9px;font-size:14px}.arch-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.8}.arch-card code{font:10px var(--mono);color:var(--accent2)}
+    .cta{padding:28px;background:linear-gradient(120deg,#0d1b2b,#102940);border:1px solid var(--line);border-radius:7px;display:flex;align-items:center;justify-content:space-between;gap:24px}.cta p{color:var(--muted);font-size:12px;line-height:1.7;margin:8px 0 0}.cta .actions{margin:0;flex-shrink:0}.cta h2{font-size:25px;margin:0}.cta-section{padding-top:5px!important;padding-bottom:95px!important}
+    footer{border-top:1px solid var(--line);padding:24px 0;color:var(--muted);font:10px var(--mono)}footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}footer a:hover{color:var(--accent)}
+    @media(max-width:760px){.wrap{width:min(100% - 36px,1120px)}.links{gap:12px}.links>a:not(.github){display:none}.hero{padding:74px 0 65px}.hero-grid{grid-template-columns:1fr;gap:36px}h1{font-size:60px}.lead{font-size:14px}.terminal{max-width:600px}.strip .wrap{justify-content:flex-start;gap:12px 20px}.section-head{display:block}.section-note{margin-top:13px}.grid{grid-template-columns:1fr}.card{min-height:auto}.icon{margin-bottom:16px}.architecture{grid-template-columns:1fr}.cta{align-items:flex-start;flex-direction:column}.cta .actions{flex-wrap:wrap}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{transition:none!important}}
+  </style>
+</head>
+<body>
+  <header><nav class="wrap nav" aria-label="Main navigation">
+    <a class="brand" href="#top" aria-label="Filers home"><span class="brand-mark" aria-hidden="true">F</span>filers</a>
+    <div class="links"><a href="#features">Features</a><a href="#architecture">Architecture</a><a href="#start">Get started</a><button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light mode">☼ Light</button><a class="github" href="https://github.com/venturaproject/filers">GitHub ↗</a></div>
+  </nav></header>
+  <main id="top">
+    <section class="hero"><div class="wrap hero-grid">
+      <div><div class="eyebrow">High-performance file processing</div>
+        <h1>Process files faster.<br>Simplify your <span>data.</span></h1>
+        <p class="lead">A production-oriented API for spreadsheets and PDFs, with OCR, validation, transformation, and batch processing. Built with Rust and a React admin panel.</p>
+        <div class="actions"><a class="button primary" href="https://github.com/venturaproject/filers#quick-start-dev">Get started&nbsp; ↗</a><a class="button secondary" href="https://github.com/venturaproject/filers/tree/main/doc">Explore the architecture</a></div>
+      </div>
+      <div class="terminal" aria-label="Example Filers API request">
+        <div class="termbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span class="termname">quick start · local</span><span class="live">API READY</span></div>
+        <div class="termcontent"><div><span class="prompt">$</span> curl -X POST localhost:8085/api/process?max_rows=5 \</div><div>&nbsp;&nbsp;-H <span class="value">'x-api-key: dev-key'</span> \</div><div>&nbsp;&nbsp;-F <span class="value">'file=@orders.xlsx'</span></div><div style="height:12px"></div><div>{</div><div>&nbsp;&nbsp;<span class="key">"columns"</span>: [<span class="value">"order_id", "customer", "amount"</span>],</div><div>&nbsp;&nbsp;<span class="key">"data"</span>: [ ... ],</div><div>&nbsp;&nbsp;<span class="key">"timings"</span>: { ... }</div><div>}</div></div>
+        <div class="term-foot"><span>parse → inspect → use</span><span class="ok">● JSON response</span></div>
+      </div>
+    </div></section>
+    <div class="strip"><div class="wrap"><span><strong>Rust</strong> · fast processing</span><span><strong>API-first</strong> · easy to integrate</span><span><strong>Self-hosted</strong> · your infrastructure</span><span><strong>Open source</strong> · MIT</span></div></div>
+    <section class="content" id="features"><div class="wrap">
+      <div class="section-head"><div><div class="kicker">One API, many workflows</div><h2>From raw files<br>to useful data.</h2></div><p class="section-note">Process a single upload or build repeatable pipelines. Filers keeps the heavy file work behind a simple HTTP interface.</p></div>
+      <div class="grid">
+        <article class="card"><div class="icon">01 / PARSE</div><h3>Spreadsheets and CSV</h3><p>Read XLSX, XLS, ODS, and CSV into structured JSON, with profiling, statistics, and timing information.</p></article>
+        <article class="card"><div class="icon">02 / SHAPE</div><h3>Validate and transform</h3><p>Check schemas, cast and filter values, select or rename columns, compare files, and compose processing pipelines.</p></article>
+        <article class="card"><div class="icon">03 / DOCUMENTS</div><h3>PDF and OCR</h3><p>Inspect and manipulate PDFs; optionally extract structured data or recognize image text with a configured vision model.</p></article>
+        <article class="card"><div class="icon">04 / AUTOMATE</div><h3>Batch jobs</h3><p>Process batches in the background, inspect job history, download results, and receive signed completion webhooks.</p></article>
+        <article class="card"><div class="icon">05 / INTEGRATE</div><h3>Authentication built in</h3><p>Use service keys or OAuth2 client credentials for integrations, and a secure session-based admin panel for operators.</p></article>
+        <article class="card"><div class="icon">06 / OPERATE</div><h3>Production-minded</h3><p>Optional Postgres persistence, Redis-backed rate limits, OpenAPI docs, health probes, and Docker Compose deployment.</p></article>
+      </div>
+    </div></section>
+    <section class="content" id="architecture" style="padding-top:0"><div class="wrap">
+      <div class="section-head"><div><div class="kicker">Small surface, clear boundaries</div><h2>Built to fit your stack.</h2></div><p class="section-note">A self-hosted service with a focused API. Keep your current application and delegate file processing to Filers.</p></div>
+      <div class="architecture">
+        <article class="arch-card"><h3>Rust API</h3><p>Axum and Tokio expose processing and admin APIs. Domain and application layers are separated from HTTP and repository adapters.</p></article>
+        <article class="arch-card"><h3>React admin</h3><p>Vite, React, TanStack Query and Table power the operator experience for activity, users, access control, and jobs.</p></article>
+        <article class="arch-card"><h3>Data and storage</h3><p>Postgres persists users, clients, RBAC, and jobs. Redis can share rate-limit counters. Batch artifacts live on a mounted volume.</p></article>
+        <article class="arch-card"><h3>Deploy your way</h3><p>Use Docker Compose behind Nginx, or run the API and frontend separately. <code>DATABASE_URL</code> and <code>REDIS_URL</code> are configurable.</p></article>
+      </div>
+    </div></section>
+    <section class="content cta-section" id="start"><div class="wrap"><div class="cta">
+      <div><h2>Start with the API.</h2><p>Run the development stack with Docker, try the sample request, and adapt the endpoints to your workflow.</p></div>
+      <div class="actions"><a class="button primary" href="https://github.com/venturaproject/filers#quick-start-dev">Quick start&nbsp; ↗</a><a class="button secondary" href="https://github.com/venturaproject/filers/tree/main/doc">Technical docs</a></div>
+    </div></div></section>
+  </main>
+  <footer><div class="wrap"><span>© Filers · Built with Rust</span><span><a href="https://github.com/venturaproject/filers">GitHub ↗</a>&nbsp;&nbsp; · &nbsp;&nbsp;<a href="https://github.com/venturaproject/filers/blob/main/LICENSE">MIT License</a></span></div></footer>
+  <script>
+    const button = document.getElementById('theme-toggle');
+    const storageKey = 'filers-landing-theme';
+    function setTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      const light = theme === 'light';
+      button.textContent = light ? '☾ Dark' : '☼ Light';
+      button.setAttribute('aria-label', `Switch to ${light ? 'dark' : 'light'} mode`);
+    }
+    let savedTheme = null;
+    try { savedTheme = localStorage.getItem(storageKey); } catch {}
+    setTheme(savedTheme || 'dark');
+    button.addEventListener('click', () => {
+      const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      setTheme(theme);
+      try { localStorage.setItem(storageKey, theme); } catch {}
+    });
+  </script>
+</body>
+</html>

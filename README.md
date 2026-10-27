@@ -6,6 +6,10 @@
 
 Fast spreadsheet processing API in Rust (axum) with a React admin panel.
 
+**[Visit the project landing page](https://venturaproject.github.io/filers/)** ·
+[Technical documentation](doc/README.md) ·
+[GitHub repository](https://github.com/venturaproject/filers)
+
 Upload an `.xlsx` / `.xls` / `.ods` / `.csv` and get structured JSON back — plus
 profiling, schema validation, transformation, format conversion, diffing and
 multi-step pipelines. A ~1.1M-cell workbook parses in **~0.5 s** of server time;
