@@ -5,3 +5,9 @@
 
 # Local test spreadsheet (real data — do not commit)
 /backend/input.xlsx
+
+# Playwright MCP artifacts (local browser snapshots, screenshots, and logs)
+/.playwright-mcp/
+
+# macOS Finder metadata
+.DS_Store
