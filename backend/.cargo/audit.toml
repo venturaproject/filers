@@ -1,13 +1,14 @@
-# cargo-audit configuration.  https://github.com/rustsec/rustsec/tree/main/cargo-audit
-#
-# Run:  cargo audit   (or  make audit )
-
 [advisories]
+# RUSTSEC-2023-0071 — rsa 0.9 Marvin timing sidechannel (medium).
+# Not compiled: rsa is present only via SQLx's optional MySQL driver; this
+# service enables PostgreSQL only (`cargo tree -i rsa` is empty). Re-evaluate
+# if a MySQL backend is added.
+#
+# RUSTSEC-2026-0459 — libsqlite3-sys SQLite CVE (medium).
+# Not compiled: libsqlite3-sys is present only via SQLx's optional SQLite
+# driver; this service enables PostgreSQL only (`cargo tree -i libsqlite3-sys`
+# is empty). Re-evaluate if SQLite support is added.
 ignore = [
-    # RUSTSEC-2023-0071 — rsa 0.9 "Marvin Attack" timing sidechannel (medium).
-    # Not compiled: `rsa` reaches Cargo.lock only through `sqlx-mysql`, and this
-    # project builds sqlx with the `postgres` feature only — `cargo tree -i rsa`
-    # is empty. No fixed release is available upstream. Re-evaluate if a MySQL
-    # backend is ever added.
     "RUSTSEC-2023-0071",
+    "RUSTSEC-2026-0459",
 ]

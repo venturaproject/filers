@@ -41,7 +41,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "migrate",
 ] }
 
-calamine        = { version = "0.37", features = ["dates"] }
+calamine        = { version = "0.38", features = ["dates"] }
 csv             = "1"
 zip             = { version = "9", default-features = false, features = ["deflate"] }
 quick-xml       = "0.42"
